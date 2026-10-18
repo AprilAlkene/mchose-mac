@@ -27,25 +27,61 @@ public struct CZCodec {
     public static let requestFlag: UInt8 = 0x55
     public static let responseFlag: UInt8 = 0xAA
     public static let reportLength = 64
+    public static let maxDataLength = 56
 
     public init() {}
 
-    public func encodeRequest(command: UInt8, payload: [UInt8] = []) -> [UInt8] {
-        var bytes = [UInt8](repeating: 0, count: Self.reportLength)
-        bytes[0] = Self.requestFlag
-        bytes[1] = command
-        bytes[2] = 0x00
-        bytes[3] = 0x38
-        bytes[4] = 0x38
-        bytes[5] = 0x00
-        bytes[6] = 0x00
-        bytes[7] = 0x00
+    public func encodeGet(
+        command: UInt8,
+        offset: Int,
+        length: Int
+    ) -> [UInt8] {
+        encodePacket(
+            command: command,
+            data: [],
+            declaredLength: min(length, Self.maxDataLength),
+            offset: offset
+        )
+    }
 
-        let count = min(payload.count, Self.reportLength - 8)
-        if count > 0 {
-            bytes.replaceSubrange(8..<(8 + count), with: payload[0..<count])
+    public func encodeCommand(
+        command: UInt8,
+        data: [UInt8],
+        offset: Int
+    ) -> [UInt8] {
+        let clipped = Array(data.prefix(Self.maxDataLength))
+        return encodePacket(
+            command: command,
+            data: clipped,
+            declaredLength: clipped.count,
+            offset: offset
+        )
+    }
+
+    private func encodePacket(
+        command: UInt8,
+        data: [UInt8],
+        declaredLength: Int,
+        offset: Int
+    ) -> [UInt8] {
+        var header: [UInt8] = [
+            UInt8(declaredLength & 0xFF),
+            UInt8(offset & 0xFF),
+            UInt8((offset >> 8) & 0xFF),
+            0,
+        ]
+        header.append(contentsOf: data)
+
+        let checksum = UInt8(header.reduce(0) { $0 + Int($1) } & 0xFF)
+        var packet: [UInt8] = [Self.requestFlag, command, 0, checksum]
+        packet.append(contentsOf: header)
+
+        if packet.count < Self.reportLength {
+            packet.append(
+                contentsOf: Array(repeating: 0, count: Self.reportLength - packet.count)
+            )
         }
-        return bytes
+        return Array(packet.prefix(Self.reportLength))
     }
 
     public func decodeResponse(_ bytes: [UInt8]) throws -> CZResponse {

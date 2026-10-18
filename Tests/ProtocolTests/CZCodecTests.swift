@@ -14,8 +14,28 @@ private func loadFixture() throws -> [String: Any] {
 @Test func encodesCapturedGetInfoRequest() throws {
     let fixture = try loadFixture()
     let expected = Hex.parse(fixture["requestHex"] as! String)!
-    let actual = CZCodec().encodeRequest(command: 0x03)
+    let actual = CZCodec().encodeGet(command: 0x03, offset: 0, length: 56)
     #expect(actual == expected)
+}
+
+@Test func encodesCommandWithSumChecksum() {
+    let packet = CZCodec().encodeCommand(
+        command: 0x2A,
+        data: [0x01, 0x02, 0x03],
+        offset: 0
+    )
+    let expected: [UInt8] = [
+        0x55, 0x2A, 0x00, 0x09, 0x03, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03,
+    ] + Array(repeating: 0, count: 53)
+    #expect(packet == expected)
+}
+
+@Test func encodesOffsetLittleEndian() {
+    let packet = CZCodec().encodeGet(command: 0xA0, offset: 512, length: 56)
+    #expect(packet[4] == 56)
+    #expect(packet[5] == 0x00)
+    #expect(packet[6] == 0x02)
+    #expect(packet[3] == 0x3A)
 }
 
 @Test func decodesCapturedResponse() throws {
