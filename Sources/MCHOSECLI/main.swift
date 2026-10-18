@@ -1,5 +1,6 @@
 import Foundation
 import HIDTransport
+import Protocol
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 let command = arguments.first ?? "help"
@@ -78,37 +79,18 @@ case "info":
     let handle = HIDDeviceHandle(device: ref.device)
     do {
         try handle.open()
-        var response: [UInt8] = []
-        try handle.startInputReports { _, bytes in
-            if bytes.count >= 2, bytes[0] == 0xAA, bytes[1] == 0x03, response.isEmpty {
-                response = bytes
-            }
-        }
+        defer { handle.close() }
 
-        var request: [UInt8] = [0x55, 0x03, 0x00, 0x38, 0x38, 0x00, 0x00, 0x00]
-        request.append(contentsOf: Array(repeating: 0, count: 56))
+        let session = CZSession(handle: handle)
+        let response = try session.getInfo(reportId: reportId)
 
-        let deadline = Date().addingTimeInterval(2.0)
-        for _ in 0..<2 {
-            try handle.setOutputReport(reportId: UInt32(reportId), bytes: request)
-            let attemptDeadline = Date().addingTimeInterval(0.4)
-            while response.isEmpty && Date() < attemptDeadline {
-                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-            }
-            if !response.isEmpty { break }
+        print("response: \(Hex.string(response.raw))")
+        print("command: 0x\(String(response.command, radix: 16))")
+        print("payload length: \(response.payloadLength) offset: \(response.payloadOffset)")
+        print("payload: \(Hex.string(response.payload))")
+        if let date = String(bytes: response.payload.suffix(20), encoding: .utf8) {
+            print("build date: \(date)")
         }
-        while response.isEmpty && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
-
-        handle.stopInputReports()
-        handle.close()
-
-        if response.isEmpty {
-            print("info failed: timed out waiting for a 0xAA 0x03 response")
-            exit(1)
-        }
-        print("response: \(Hex.string(response))")
     } catch {
         print("info failed: \(error.localizedDescription)")
         exit(1)
