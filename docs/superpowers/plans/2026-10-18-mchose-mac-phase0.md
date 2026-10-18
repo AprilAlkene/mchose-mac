@@ -21,6 +21,15 @@
 - Commit after every task; do not commit `.build/`.
 - If a device command fails, log the raw hex and stop; never retry with guessed bytes.
 
+## Test Harness Adaptation (this machine)
+
+This Mac has Command Line Tools only; XCTest is not installed. Tests use **Swift Testing** instead:
+
+- `import Testing`, `@Test func name()`, `#expect(condition)`, `#expect(value == expected)`
+- `Package.swift` test targets load `libTestingMacros.dylib` and add rpaths for `Testing.framework` and `lib_TestingInterop.dylib`
+- Where a step below shows XCTest code, translate it to the equivalent Swift Testing assertion. The test names and expected behavior stay the same.
+
+
 ---
 
 ## File Structure
