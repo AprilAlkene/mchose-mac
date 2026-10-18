@@ -23,6 +23,7 @@ let package = Package(
     products: [
         .library(name: "HIDTransport", targets: ["HIDTransport"]),
         .library(name: "Protocol", targets: ["Protocol"]),
+        .library(name: "Features", targets: ["Features"]),
         .executable(name: "mchose-cli", targets: ["MCHOSECLI"]),
     ],
     targets: [
@@ -31,6 +32,7 @@ let package = Package(
             linkerSettings: [.linkedFramework("IOKit")]
         ),
         .target(name: "Protocol", dependencies: ["HIDTransport"]),
+        .target(name: "Features", dependencies: ["HIDTransport", "Protocol"]),
         .executableTarget(name: "MCHOSECLI", dependencies: ["HIDTransport", "Protocol"]),
         .testTarget(
             name: "HIDTransportTests",
@@ -41,6 +43,12 @@ let package = Package(
         .testTarget(
             name: "ProtocolTests",
             dependencies: ["Protocol", "HIDTransport"],
+            swiftSettings: testSwiftSettings,
+            linkerSettings: testLinkerSettings
+        ),
+        .testTarget(
+            name: "FeaturesTests",
+            dependencies: ["Features", "HIDTransport", "Protocol"],
             swiftSettings: testSwiftSettings,
             linkerSettings: testLinkerSettings
         ),
