@@ -1,0 +1,33 @@
+name: MCHOSEMac
+options:
+  bundleIdPrefix: local.mchose
+  deploymentTarget:
+    macOS: "13.0"
+packages:
+  MCHOSECore:
+    path: .
+targets:
+  MCHOSEMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: App/Sources
+      - path: Resources/DeviceManifests
+        type: folder
+    dependencies:
+      - package: MCHOSECore
+        product: HIDTransport
+      - package: MCHOSECore
+        product: Protocol
+      - package: MCHOSECore
+        product: Features
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.mchose.mac
+        PRODUCT_NAME: MCHOSEMac
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        SWIFT_VERSION: "5.0"

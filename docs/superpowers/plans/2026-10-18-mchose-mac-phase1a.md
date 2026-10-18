@@ -1172,3 +1172,16 @@ git commit -m "chore: complete Phase 1a read-only app"
 - [ ] App connects and displays product/build date.
 - [ ] No write command exists in the app path.
 - [ ] Phase 1b can build on `DeviceConnection` and `DeviceStore` without restructuring.
+
+---
+
+## Execution Notes (2026-10-18)
+
+- XcodeGen ignored the target-level `resources:` key in this setup. The manifest is included with:
+  `sources: - path: Resources/DeviceManifests, type: folder`.
+- The app auto-connects the first matching device during the first scan; the 连接 button remains for manual reconnect.
+- The built app is symlinked to `~/mchose-mac/build/MCHOSEMac.app`.
+- Verified app data path: manifest loaded `Ace 68 Turbo 16K`; scan found 1 device; auto-connect returned `firmware=126` and `build=Jul 21 2026,15:16:19`.
+- UI text inspection through System Events is blocked by macOS Accessibility permission. The app process is running and the data path is verified; visual inspection is left to the user.
+- Package tests: 6 Protocol + 14 HIDTransport + 4 Features, all passing.
+
