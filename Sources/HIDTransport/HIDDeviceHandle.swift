@@ -61,6 +61,11 @@ public final class HIDDeviceHandle {
         inputBuffer = buffer
         onInput = handler
 
+        IOHIDDeviceScheduleWithRunLoop(
+            device,
+            CFRunLoopGetCurrent(),
+            CFRunLoopMode.defaultMode.rawValue
+        )
         IOHIDDeviceRegisterInputReportCallback(
             device,
             buffer,
@@ -73,6 +78,11 @@ public final class HIDDeviceHandle {
     public func stopInputReports() {
         onInput = nil
         if let buffer = inputBuffer {
+            IOHIDDeviceUnscheduleFromRunLoop(
+                device,
+                CFRunLoopGetCurrent(),
+                CFRunLoopMode.defaultMode.rawValue
+            )
             IOHIDDeviceRegisterInputReportCallback(device, buffer, 64, nil, nil)
             buffer.deinitialize(count: 64)
             buffer.deallocate()
