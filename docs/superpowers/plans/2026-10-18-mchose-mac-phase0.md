@@ -29,6 +29,14 @@ This Mac has Command Line Tools only; XCTest is not installed. Tests use **Swift
 - `Package.swift` test targets load `libTestingMacros.dylib` and add rpaths for `Testing.framework` and `lib_TestingInterop.dylib`
 - Where a step below shows XCTest code, translate it to the equivalent Swift Testing assertion. The test names and expected behavior stay the same.
 
+## Execution Notes (2026-10-18)
+
+- Task 6 was completed without the manual UI capture flow. The CZ SDK exposed on the page (`CZ_SHARED_DATA.createDeviceSDK`) was used to emit the `getInfo` request; the real-device response was captured over WebHID, then reproduced natively.
+- Captured frames are in `docs/captures/ace68-phase0.md`; the test fixture is `Tests/ProtocolTests/Fixtures/ace68-read-info.json`.
+- Command `0x03` showed no checksum in the captured request or response. The codec implements the observed 8-byte header plus 64-byte zero padding instead of the earlier guessed packet/checksum layout.
+- IOKit input callbacks require `IOHIDDeviceScheduleWithRunLoop` on the current run loop; without it the request is sent but the response is never delivered.
+- `mchose-cli info 0` returned the same response as the web SDK, including the firmware build date `Jul 21 2026,15:16:19`.
+
 
 ---
 

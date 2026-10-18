@@ -1,0 +1,1 @@
+_identity:{vendorId:14391,productId:12326,productName:null,key:"0x3837_0x3026"},id:"ace68pro",layoutId:"ace68pro",type:211,fwVersion:126,storageKey:"Ace 68 Turbo 16K",name:"Ace 68 Turbo",fullName:"Ace 68 Turbo(16K)",bootUpdateMode:"0x3837_0x3027"

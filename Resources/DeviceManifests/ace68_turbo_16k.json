@@ -1,0 +1,42 @@
+{
+  "id": "ace68-turbo-16k",
+  "displayName": "Ace 68 Turbo 16K",
+  "protocolFamily": "cz",
+  "identities": [
+    {
+      "vendorId": 14391,
+      "productId": 12326,
+      "mode": "normal"
+    },
+    {
+      "vendorId": 14391,
+      "productId": 12327,
+      "mode": "boot"
+    }
+  ],
+  "configInterface": {
+    "usagePage": 1,
+    "usage": 0,
+    "maxReportSize": 64
+  },
+  "capabilities": {
+    "magnetic": true,
+    "keymap": true,
+    "macros": true,
+    "socd": true,
+    "lighting": true,
+    "perKeyLighting": true,
+    "gifLighting": false,
+    "musicSync": false,
+    "battery": false
+  },
+  "profileSlots": null,
+  "macroSlots": null,
+  "layoutAsset": "Layouts/ace68_turbo_16k.json",
+  "layoutId": null,
+  "lightingMatrix": null,
+  "ranges": null,
+  "verified": true,
+  "firmwareVersion": 122,
+  "deviceType": 211
+}

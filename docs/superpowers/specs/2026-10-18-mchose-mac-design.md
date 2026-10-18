@@ -66,11 +66,15 @@ Ace 68 Turbo 16K usagePage=0x1 usage=0x6 in=8  out=1  open=0xE00002E2 ← 系统
    - 使用 `cmdOffset`、`getPayloadValue`、`getLength` 等辅助函数解析
    - Ace 68 Turbo（设备库 `type: 211`）走这一代协议
 
-**Phase 0 必须确认：**
+**Phase 0 已确认（2026-10-18）：**
 
-- Ace 68 Turbo 的 64 字节接口无 Report ID，原生侧应按 report ID `0` 发送；网页层默认的 77 是否适用于 CZ 设备
-- CZ 协议的完整帧格式、校验算法、命令码表、payload 编码
-- 读取基础信息（型号、固件版本、配置档数量、当前槽位）的最小命令集
+- 配置接口 report ID `0`；请求 flag `0x55`，响应 flag `0xAA`
+- `getInfo` 请求：64 字节 `55 03 00 38 38 00 00 00` + 56 个 `0x00`
+- `getInfo` 响应头：`[flag, command, ?, ?, length, offset_lo, offset_hi, ?]`，payload 从偏移 8 开始；本次 `length=27`、`offset=0`
+- payload：`26 01 FF FF FF FF 00` + ASCII 构建日期 `Jul 21 2026,15:16:19`
+- 该命令未观察到校验和；最后字节为 `0x00`
+- 读取基础信息的最小命令：command `0x03`（getInfo）
+- 已验证：`mchose-cli info 0` 与网页 SDK 返回一致；网页 SDK 解析出 `fw_ver=126`、`rffw_ver=ffff`、`collabType=255`
 
 ---
 
