@@ -15,6 +15,7 @@ MCHOSE（迈从）Ace 68 Turbo 16K 键盘的 **macOS 原生配置工具**（个�
 | 配置档切换（base 声明 3 个活动档，最多 4 档） | ✅ 实机验证 |
 | 随前台应用自动切换配置档（菜单栏常驻） | ✅ 已实现，带 350ms 去抖 |
 | 应用前自动快照 / 一键恢复 | ✅ 已实现 |
+| 热插拔 / 睡眠唤醒自动重连 | ✅ 已实现（监听配置接口增删 + 唤醒刷新） |
 | 宏 / SOCD / 导入导出 / 逐键灯效 / GIF / 音乐律动 | ❌ 未实现（Phase 2） |
 | 固件 OTA / boot 模式 / 多型号 | ❌ 不做（见设计文档非目标） |
 
@@ -24,7 +25,7 @@ MCHOSE（迈从）Ace 68 Turbo 16K 键盘的 **macOS 原生配置工具**（个�
 
 ```text
 Sources/
-  HIDTransport/   IOKit 枚举、打开配置接口、报告收发
+  HIDTransport/   IOKit 枚举、打开配置接口、报告收发、热插拔监听、专用 I/O 线程
   Protocol/       CZ 协议编解码、分页组装、命令会话（含 dry-run）
   Features/       设备清单、getInfo、磁轴、键位、灯效、配置档、快照、连接封装
   MCHOSECLI/      诊断 CLI（只读默认）
@@ -67,8 +68,9 @@ mchose-cli <command> [options]
   --dry-run      只编码写入、不真正发送
 
 命令：
-  list                       枚举配置接口
+  list                       枚举配置接口（只匹配配置接口，不打开键盘接口）
   open                       打开配置接口
+  watch [seconds]            监听热插拔 add/remove 事件（默认 5 秒）
   monitor                    打印 10 秒原始输入报告
   info <reportId-hex>        发送 getInfo 并打印响应
   probe                      读取信息 / 磁轴 / 键位 / 灯效 / 配置档
@@ -106,8 +108,9 @@ swift run mchose-cli restore --allow-write # 恢复最近快照并逐段回读�
 
 - 仅支持 Ace 68 Turbo 16K；其他型号未实机验证。
 - 快照只覆盖当前配置档的第 0 层键位（FN 层、宏、逐键灯效未纳入）。
-- 设备 I/O 在主线程序列执行（同步 RunLoop 轮询），慢操作时 UI 会短暂卡顿。
-- 未监听系统热插拔/睡眠唤醒通知，需要手动“扫描设备”。
+- 设备发现只枚举 MCHOSE 厂商的配置接口（`usagePage 0x01/0x00` 或 `0xFF00/0x01`），因此 `list` 看不到键盘/鼠标等其他 HID 接口；这是为了避免打开受保护键盘接口触发“输入监控”授权请求。
+- App 的设备 I/O 在专用 run-loop 线程执行，主线程只更新 UI；CLI 仍是单线程同步。
+- 新构建的二进制首次运行时，系统代码签名/TCC 校验可能让首轮扫描多花 2–3 秒；之后的启动正常。
 - 自动切档会写 base 结构（是否写 flash 待确认），已加去抖，但仍建议不要高频触发。
 - 应用未签名、未公证，仅本地自用。
 

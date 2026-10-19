@@ -93,6 +93,9 @@ final class DeviceStore: ObservableObject {
         logger.info(
             "manifest loaded: \(self.manifest?.displayName ?? "none", privacy: .public) policy=\(String(describing: self.writePolicy), privacy: .public)"
         )
+        // Start enumerating right away instead of waiting for the first view
+        // task, which can take seconds during app launch.
+        refresh(force: false)
     }
 
     private static func writePolicyFromCommandLine() -> DeviceWritePolicy {
@@ -142,11 +145,18 @@ final class DeviceStore: ObservableObject {
         }
         let previousID = selected?.id
         let enumerator = self.enumerator
+        let started = DispatchTime.now()
+        logger.info("refresh start force=\(force)")
         isBusy = true
         ioWorker.perform { [weak self] in
             let scanned = Self.scanDevices(enumerator: enumerator, manifest: manifest)
             Task { @MainActor [weak self] in
-                self?.finishScan(scanned, previousID: previousID, force: force)
+                self?.finishScan(
+                    scanned,
+                    previousID: previousID,
+                    force: force,
+                    started: started
+                )
             }
         }
     }
@@ -163,7 +173,14 @@ final class DeviceStore: ObservableObject {
             .map { ConnectedDevice(ref: $0, manifest: manifest) }
     }
 
-    private func finishScan(_ scanned: [ConnectedDevice], previousID: String?, force: Bool) {
+    private func finishScan(
+        _ scanned: [ConnectedDevice],
+        previousID: String?,
+        force: Bool,
+        started: DispatchTime
+    ) {
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000
+        logger.info("scan finished in \(elapsed, format: .fixed(precision: 0)) ms")
         if !force, selected != nil, Set(scanned.map(\.id)) == Set(devices.map(\.id)) {
             isBusy = false
             return
