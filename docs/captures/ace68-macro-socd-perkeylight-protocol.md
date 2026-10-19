@@ -1079,4 +1079,4 @@ def parse_colors(b):                    # b = 384 bytes
 | 快照包含新增区域 | `mchose-cli snapshot` | ✅ JSON 含 `keyColors`(128) 与 `macroBytes`(112) |
 | report 77（0x202 key config）| 临时探针：report ID 77 + 7 B header + `01 00 07` data | ❌ 2 s 内没有收到输入报告；该接口上未验证成功，SOCD 读取/写入未实现 |
 
-结论：宏与逐键静态灯已实现并实机验证；SOCD 仅完成协议逆向（依赖 report 77 通道），未实现读写。若以后实现，先解决 report 77 的通道可用性（可能需要 boot 模式或不同接口/报告 ID），再按 3.2/3.3 的记录流解析。
+结论：宏与逐键静态灯已实现并实机验证；SOCD 仅完成协议逆向（依赖 report 77 通道）。**产品范围决定：macOS 版不实现 SOCD**（2026-10-19 确认），本文件保留逆向记录供参考。若以后实现，先解决 report 77 的通道可用性（可能需要 boot 模式或不同接口/报告 ID），再按 3.2/3.3 的记录流解析。
