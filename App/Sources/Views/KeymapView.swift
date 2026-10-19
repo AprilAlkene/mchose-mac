@@ -75,8 +75,12 @@ struct KeymapView: View {
                     }
                 }
 
-                Button("应用改键") { apply() }
-                    .disabled(store.isBusy || !store.canWrite || selectedIndex >= keys.count)
+                HStack {
+                    Button("应用改键") { apply() }
+                    Button("设为空") { clear() }
+                        .help("把该层这个键改成“无映射”（type 0xFF）")
+                }
+                .disabled(store.isBusy || !store.canWrite || selectedIndex >= keys.count)
             }
         }
         .padding()
@@ -97,6 +101,16 @@ struct KeymapView: View {
         updated[selectedIndex].code1 = 0
         updated[selectedIndex].code2 = targetUsage
         updated[selectedIndex].name = KeyNameMap.hidName(targetUsage)
+        store.applyKeymap(updated, layer: selectedLayer)
+    }
+
+    private func clear() {
+        guard selectedIndex < keys.count else { return }
+        var updated = keys
+        updated[selectedIndex].type = 255
+        updated[selectedIndex].code1 = 0
+        updated[selectedIndex].code2 = 0
+        updated[selectedIndex].name = "空"
         store.applyKeymap(updated, layer: selectedLayer)
     }
 }
