@@ -36,6 +36,8 @@ final class DeviceStore: ObservableObject {
     @Published private(set) var info: DeviceInfo?
     @Published private(set) var triggers: [TriggerConfig] = []
     @Published private(set) var keymap: [KeyInfo] = []
+    /// Keymap layers read on demand; layer 0 is filled at connect time.
+    @Published private(set) var keymapLayers: [Int: [KeyInfo]] = [:]
     @Published private(set) var light: LightConfig?
     @Published private(set) var base: BaseInfo?
     @Published private(set) var status: String = "未连接"
@@ -205,6 +207,7 @@ final class DeviceStore: ObservableObject {
             info = nil
             triggers = []
             keymap = []
+            keymapLayers = [:]
             light = nil
             base = nil
         }
@@ -232,6 +235,7 @@ final class DeviceStore: ObservableObject {
         info = nil
         triggers = []
         keymap = []
+        keymapLayers = [:]
         light = nil
         base = nil
     }
@@ -288,6 +292,7 @@ final class DeviceStore: ObservableObject {
                 self.info = nil
                 self.triggers = []
                 self.keymap = []
+                self.keymapLayers = [:]
                 self.light = nil
                 self.base = nil
                 self.status = "未连接"
@@ -307,14 +312,53 @@ final class DeviceStore: ObservableObject {
         )
     }
 
-    func applyKeymap(_ updated: [KeyInfo]) {
+    func applyKeymap(_ updated: [KeyInfo], layer: Int = 0) {
         let profile = base?.profileIndex ?? 0
         applyFeature(
-            "键位",
-            operation: { try $0.applyKeymap(updated, profile: profile) },
-            readback: { try $0.readKeymap(profile: profile) },
-            update: { [weak self] in self?.keymap = $0 }
+            layer == 0 ? "键位" : "键位（第 \(layer + 1) 层）",
+            operation: { try $0.applyKeymap(updated, layer: layer, profile: profile) },
+            readback: { try $0.readKeymap(layer: layer, profile: profile) },
+            update: { [weak self] in
+                self?.keymapLayers[layer] = $0
+                if layer == 0 {
+                    self?.keymap = $0
+                }
+            }
         )
+    }
+
+    /// Reads a keymap layer on demand; the UI calls this when the user selects
+    /// a layer other than the one loaded at connect time.
+    func loadLayer(_ layer: Int) {
+        guard keymapLayers[layer] == nil,
+              !isBusy,
+              let connection = selected?.connection
+        else {
+            return
+        }
+        let profile = base?.profileIndex ?? 0
+        isBusy = true
+        ioWorker.perform { [weak self] in
+            var keys: [KeyInfo]?
+            var failure: Error?
+            do {
+                keys = try connection.readKeymap(layer: layer, profile: profile)
+            } catch {
+                failure = error
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isBusy = false
+                if let failure {
+                    self.error = failure.localizedDescription
+                    self.status = "读取图层失败"
+                    return
+                }
+                if let keys {
+                    self.keymapLayers[layer] = keys
+                }
+            }
+        }
     }
 
     func applyLight(_ updated: LightConfig) {
@@ -532,6 +576,7 @@ final class DeviceStore: ObservableObject {
             self.base = base
         }
         keymap = loaded.keymap
+        keymapLayers = [0: loaded.keymap]
         triggers = loaded.triggers
         light = loaded.light
 

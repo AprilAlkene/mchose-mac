@@ -33,24 +33,39 @@ private let commonKeys: [CommonKey] = [
 struct KeymapView: View {
     @ObservedObject var store: DeviceStore
 
+    @State private var selectedLayer = 0
     @State private var selectedIndex = 0
     @State private var targetUsage: UInt8 = 41
 
+    private var keys: [KeyInfo] {
+        store.keymapLayers[selectedLayer] ?? []
+    }
+
     var body: some View {
         Form {
-            if store.keymap.isEmpty {
-                Text("连接设备后加载键位")
+            Picker("图层", selection: $selectedLayer) {
+                ForEach(0..<DeviceMemoryMap.layers, id: \.self) { layer in
+                    Text(layerName(layer)).tag(layer)
+                }
+            }
+            .onChange(of: selectedLayer) { layer in
+                selectedIndex = 0
+                store.loadLayer(layer)
+            }
+
+            if keys.isEmpty {
+                Text(store.isBusy ? "读取图层…" : "连接设备后加载键位")
                     .foregroundStyle(.secondary)
             } else {
                 Picker("按键", selection: $selectedIndex) {
-                    ForEach(store.keymap) { key in
+                    ForEach(keys) { key in
                         Text("\(key.index)  \(key.name)").tag(key.index)
                     }
                 }
 
-                if selectedIndex < store.keymap.count {
+                if selectedIndex < keys.count {
                     LabeledContent("当前映射") {
-                        Text(store.keymap[selectedIndex].name)
+                        Text(keys[selectedIndex].name)
                     }
                 }
 
@@ -61,19 +76,27 @@ struct KeymapView: View {
                 }
 
                 Button("应用改键") { apply() }
-                    .disabled(store.isBusy || !store.canWrite || selectedIndex >= store.keymap.count)
+                    .disabled(store.isBusy || !store.canWrite || selectedIndex >= keys.count)
             }
         }
         .padding()
+        .onChange(of: store.keymap) { _ in
+            // Re-read the selected layer after a reconnect or profile switch.
+            store.loadLayer(selectedLayer)
+        }
+    }
+
+    private func layerName(_ layer: Int) -> String {
+        layer == 0 ? "基础层" : "FN 层 \(layer)"
     }
 
     private func apply() {
-        guard selectedIndex < store.keymap.count else { return }
-        var keys = store.keymap
-        keys[selectedIndex].type = 16
-        keys[selectedIndex].code1 = 0
-        keys[selectedIndex].code2 = targetUsage
-        keys[selectedIndex].name = KeyNameMap.hidName(targetUsage)
-        store.applyKeymap(keys)
+        guard selectedIndex < keys.count else { return }
+        var updated = keys
+        updated[selectedIndex].type = 16
+        updated[selectedIndex].code1 = 0
+        updated[selectedIndex].code2 = targetUsage
+        updated[selectedIndex].name = KeyNameMap.hidName(targetUsage)
+        store.applyKeymap(updated, layer: selectedLayer)
     }
 }

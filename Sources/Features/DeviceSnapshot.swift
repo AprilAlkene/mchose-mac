@@ -1,5 +1,16 @@
 import Foundation
 
+/// One keymap layer of the captured profile.
+public struct KeymapLayer: Codable, Equatable, Sendable {
+    public let layer: Int
+    public let keys: [KeyInfo]
+
+    public init(layer: Int, keys: [KeyInfo]) {
+        self.layer = layer
+        self.keys = keys
+    }
+}
+
 /// A point-in-time copy of every writable section of the device.
 ///
 /// The snapshot stores decoded values instead of raw keymap bytes so that a
@@ -13,6 +24,10 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
     public let profileIndex: Int
     public let triggers: [TriggerConfig]
     public let keymap: [KeyInfo]
+    /// Keymaps of every layer of `profileIndex`. `nil` for snapshots written
+    /// before multi-layer capture existed; those only contain layer 0 in
+    /// `keymap`.
+    public let keymapLayers: [KeymapLayer]?
     public let funcConfig: [UInt8]
     public let base: [UInt8]
 
@@ -23,6 +38,7 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         profileIndex: Int,
         triggers: [TriggerConfig],
         keymap: [KeyInfo],
+        keymapLayers: [KeymapLayer]? = nil,
         funcConfig: [UInt8],
         base: [UInt8]
     ) {
@@ -32,6 +48,7 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         self.profileIndex = profileIndex
         self.triggers = triggers
         self.keymap = keymap
+        self.keymapLayers = keymapLayers
         self.funcConfig = funcConfig
         self.base = base
     }
@@ -43,6 +60,7 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         case profileIndex
         case triggers
         case keymap
+        case keymapLayers
         case funcConfig
         case base
     }
@@ -66,6 +84,10 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
             forKey: .triggers
         )
         keymap = try container.decode([KeyInfo].self, forKey: .keymap)
+        keymapLayers = try container.decodeIfPresent(
+            [KeymapLayer].self,
+            forKey: .keymapLayers
+        )
         funcConfig = try container.decode([UInt8].self, forKey: .funcConfig)
         base = try container.decode([UInt8].self, forKey: .base)
     }

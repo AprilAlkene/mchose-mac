@@ -375,13 +375,20 @@ public final class DeviceConnection {
         let info = try? readInfo()
         let base = try readBaseBytes()
         let profile = BaseCodec.parse(base)?.profileIndex ?? 0
+        let layers = try (0..<DeviceMemoryMap.layers).map { layer in
+            KeymapLayer(
+                layer: layer,
+                keys: try readKeymap(layer: layer, profile: profile)
+            )
+        }
         return DeviceSnapshot(
             product: ref.info.product,
             firmwareVersion: info?.firmwareVersion,
             createdAt: Date(),
             profileIndex: profile,
             triggers: try readTriggers(profile: profile),
-            keymap: try readKeymap(profile: profile),
+            keymap: layers[0].keys,
+            keymapLayers: layers,
             funcConfig: try readFuncConfig(profile: profile),
             base: base
         )
@@ -403,9 +410,22 @@ public final class DeviceConnection {
             throw DeviceWriteError.verificationFailed(feature: "snapshot triggers")
         }
 
-        try writeKeymap(snapshot.keymap, profile: profile)
-        guard try readKeymap(profile: profile) == snapshot.keymap else {
-            throw DeviceWriteError.verificationFailed(feature: "snapshot keymap")
+        if let layers = snapshot.keymapLayers, !layers.isEmpty {
+            // Snapshots written before multi-layer capture only contain
+            // layer 0; restore those normally below.
+            for layer in layers.sorted(by: { $0.layer < $1.layer }) {
+                try writeKeymap(layer.keys, layer: layer.layer, profile: profile)
+                guard try readKeymap(layer: layer.layer, profile: profile) == layer.keys else {
+                    throw DeviceWriteError.verificationFailed(
+                        feature: "snapshot keymap layer \(layer.layer)"
+                    )
+                }
+            }
+        } else {
+            try writeKeymap(snapshot.keymap, profile: profile)
+            guard try readKeymap(profile: profile) == snapshot.keymap else {
+                throw DeviceWriteError.verificationFailed(feature: "snapshot keymap")
+            }
         }
 
         try writeFuncConfig(snapshot.funcConfig, profile: profile)

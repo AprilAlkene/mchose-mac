@@ -94,6 +94,7 @@ func usage() -> String {
       watch [seconds]          print hotplug add/remove events (default 5s)
       info <reportId-hex>      send getInfo and print the response
       probe                    read info, triggers, keymap, light and base
+      layers                   read and diff all four keymap layers
       readraw <cmd> <off> <len>  read raw bytes with an arbitrary command
       snapshot [path]          capture a restorable snapshot (JSON)
       restore [path]           restore the latest snapshot (or a given file)
@@ -241,6 +242,28 @@ func run() throws {
             )
         }
 
+    case "layers":
+        let connection = try openConnection()
+        defer { connection.close() }
+        _ = try connection.readInfo()
+        Thread.sleep(forTimeInterval: 0.1)
+        let profile = try connection.readBase()?.profileIndex ?? 0
+        print("active profile: \(profile + 1)")
+        let baseKeys = try connection.readKeymap(layer: 0, profile: profile)
+        print("layer 0: \(baseKeys.count) keys")
+        for layer in 1..<DeviceMemoryMap.layers {
+            let keys = try connection.readKeymap(layer: layer, profile: profile)
+            let diffs = zip(baseKeys, keys).enumerated().filter { $0.element.0 != $0.element.1 }
+            print("layer \(layer): \(keys.count) keys, \(diffs.count) differ from layer 0")
+            for (index, pair) in diffs.prefix(12) {
+                print(
+                    "  key \(index): layer0=\(pair.0.name) " +
+                    "layer\(layer)=\(pair.1.name) type=\(pair.1.type) " +
+                    "code1=\(pair.1.code1) code2=\(pair.1.code2)"
+                )
+            }
+        }
+
     case "snapshot":
         let connection = try openConnection()
         defer { connection.close() }
@@ -250,6 +273,7 @@ func run() throws {
             "snapshot saved: \(url.path) " +
             "(product=\(snapshot.product) profile=\(snapshot.profileIndex + 1) " +
             "triggers=\(snapshot.triggers.count) " +
+            "keymap layers=\(snapshot.keymapLayers?.count ?? 1) " +
             "keys=\(snapshot.keymap.count) func=\(snapshot.funcConfig.count) base=\(snapshot.base.count))"
         )
         if options.writePolicy == .readOnly {
@@ -296,11 +320,13 @@ func run() throws {
         print("active profile: \(profile + 1)/\(base?.profileCount ?? 0)")
 
         let triggers = try connection.readTriggers(profile: profile)
-        let keys = try connection.readKeymap(profile: profile)
+        let keymapLayers = try (0..<DeviceMemoryMap.layers).map { layer in
+            try connection.readKeymap(layer: layer, profile: profile)
+        }
         let funcConfig = try connection.readFuncConfig(profile: profile)
         let baseBytes = try connection.readBaseBytes()
         print(
-            "read: triggers=\(triggers.count) keys=\(keys.count) " +
+            "read: triggers=\(triggers.count) keymap layers=\(keymapLayers.map(\.count)) " +
             "func=\(funcConfig.count) base=\(baseBytes.count)"
         )
 
@@ -312,10 +338,12 @@ func run() throws {
         } catch {
             writeErrors.append("triggers: \(error.localizedDescription)")
         }
-        do {
-            try connection.applyKeymap(keys, profile: profile)
-        } catch {
-            writeErrors.append("keymap: \(error.localizedDescription)")
+        for (layer, keys) in keymapLayers.enumerated() {
+            do {
+                try connection.applyKeymap(keys, layer: layer, profile: profile)
+            } catch {
+                writeErrors.append("keymap layer \(layer): \(error.localizedDescription)")
+            }
         }
         do {
             if let light = FuncConfigCodec.light(from: funcConfig) {
@@ -334,19 +362,19 @@ func run() throws {
         print("write errors: \(writeErrors.isEmpty ? "none" : writeErrors.joined(separator: " | "))")
 
         let triggers2 = try connection.readTriggers(profile: profile)
-        let keys2 = try connection.readKeymap(profile: profile)
+        let keymapLayers2 = try (0..<DeviceMemoryMap.layers).map { layer in
+            try connection.readKeymap(layer: layer, profile: profile)
+        }
         let func2 = try connection.readFuncConfig(profile: profile)
         let base2 = try connection.readBaseBytes()
         print("triggers match: \(triggers == triggers2)")
-        print("keymap match: \(keys == keys2)")
-        if keys != keys2 {
-            let diffs = zip(keys, keys2).enumerated()
+        print("keymap layers match: \(keymapLayers == keymapLayers2)")
+        for layer in 0..<DeviceMemoryMap.layers where keymapLayers[layer] != keymapLayers2[layer] {
+            let diffs = zip(keymapLayers[layer], keymapLayers2[layer])
+                .enumerated()
                 .filter { $0.element.0 != $0.element.1 }
                 .map { $0.offset }
-            print("keymap diffs: count=\(diffs.count) first=\(diffs.prefix(12))")
-            for index in diffs.prefix(5) {
-                print("  key \(index): before=\(keys[index]) after=\(keys2[index])")
-            }
+            print("  layer \(layer) keymap diffs: count=\(diffs.count) first=\(diffs.prefix(12))")
         }
         print("func match: \(funcConfig == func2)")
         print("base match: \(baseBytes == base2)")

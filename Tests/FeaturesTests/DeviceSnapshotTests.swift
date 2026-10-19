@@ -98,3 +98,51 @@ private func makeSnapshot() -> DeviceSnapshot {
         .appendingPathComponent("mchose-snapshot-missing-\(UUID().uuidString)")
     #expect(try SnapshotStore.latest(in: directory) == nil)
 }
+
+@Test func snapshotRoundTripsAllKeymapLayers() throws {
+    let base = makeSnapshot()
+    let layerKeys: [KeyInfo] = [
+        KeyInfo(type: 16, code1: 0, code2: 41, name: "Esc", index: 0),
+        KeyInfo(type: 16, code1: 0, code2: 42, name: "Backspace", index: 1),
+    ]
+    let snapshot = DeviceSnapshot(
+        product: base.product,
+        firmwareVersion: base.firmwareVersion,
+        createdAt: base.createdAt,
+        profileIndex: base.profileIndex,
+        triggers: base.triggers,
+        keymap: layerKeys,
+        keymapLayers: [
+            KeymapLayer(layer: 0, keys: layerKeys),
+            KeymapLayer(layer: 1, keys: []),
+        ],
+        funcConfig: base.funcConfig,
+        base: base.base
+    )
+
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let decoded = try decoder.decode(
+        DeviceSnapshot.self,
+        from: try encoder.encode(snapshot)
+    )
+
+    #expect(decoded == snapshot)
+    #expect(decoded.keymapLayers?.map(\.layer) == [0, 1])
+}
+
+@Test func legacySnapshotWithoutLayersDecodesWithNilLayers() throws {
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let data = try encoder.encode(makeSnapshot())
+    let object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    #expect(object["keymapLayers"] == nil)
+
+    let decoded = try decoder.decode(DeviceSnapshot.self, from: data)
+    #expect(decoded.keymapLayers == nil)
+}
