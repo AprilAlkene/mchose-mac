@@ -1062,3 +1062,21 @@ def parse_colors(b):                    # b = 384 bytes
 - `macroSlots=null`：从 SDK 推断 16；实机 `0x0C` header 可确认。
 - 现有 Swift 读 `0x08` 得到的 layer0/2 Esc、layer1/3 反引号是旧 keymap 视图，不代表官方 GLW UI 的新 key config 视图；两者需只读对比后再写。
 - 本次未改代码、未提交 git、未向设备写任何字节。
+
+---
+
+## 8. 实机验证结果（2026-10-19，fw 126，Ace 68 Turbo 16K）
+
+已用 `mchose-cli` 在配置接口（usagePage 1 / usage 0）上验证：
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 逐键静态灯读取 | `mchose-cli keylight` | ✅ 活动档读回 128 项、384 B；本机全黑 |
+| 逐键静态灯写+回读 | `mchose-cli keylight-set 0 FF0000 --allow-write` | ✅ 回读一致（key 0 = `#FF0000`），随后改回全黑 |
+| 宏读取 | `mchose-cli macro` | ✅ 读回 112 B 前缀；16 个槽 offset 全为 64，`81 7E` 存在，全部为空 |
+| 宏写入+回读 | `mchose-cli macro-set 0 A:down A:up --allow-write` | ✅ slot 0 回读 `[A down, A up]`，offset 从 64 变为 68 |
+| 宏清空+回读 | `mchose-cli macro-clear 0 --allow-write` | ✅ slot 0 恢复为空 |
+| 快照包含新增区域 | `mchose-cli snapshot` | ✅ JSON 含 `keyColors`(128) 与 `macroBytes`(112) |
+| report 77（0x202 key config）| 临时探针：report ID 77 + 7 B header + `01 00 07` data | ❌ 2 s 内没有收到输入报告；该接口上未验证成功，SOCD 读取/写入未实现 |
+
+结论：宏与逐键静态灯已实现并实机验证；SOCD 仅完成协议逆向（依赖 report 77 通道），未实现读写。若以后实现，先解决 report 77 的通道可用性（可能需要 boot 模式或不同接口/报告 ID），再按 3.2/3.3 的记录流解析。
