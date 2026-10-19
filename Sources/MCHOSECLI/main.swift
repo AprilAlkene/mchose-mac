@@ -304,19 +304,25 @@ func run() throws {
             "func=\(funcConfig.count) base=\(baseBytes.count)"
         )
 
+        // Use the same apply* path as the app so the readback verification and
+        // rollback logic is exercised, not just the raw writes.
         var writeErrors: [String] = []
         do {
-            try connection.writeTriggers(triggers, profile: profile)
+            try connection.applyTriggers(triggers, profile: profile)
         } catch {
             writeErrors.append("triggers: \(error.localizedDescription)")
         }
         do {
-            try connection.writeKeymap(keys, profile: profile)
+            try connection.applyKeymap(keys, profile: profile)
         } catch {
             writeErrors.append("keymap: \(error.localizedDescription)")
         }
         do {
-            try connection.writeFuncConfig(funcConfig, profile: profile)
+            if let light = FuncConfigCodec.light(from: funcConfig) {
+                try connection.applyLightConfig(light, profile: profile)
+            } else {
+                writeErrors.append("func: could not parse light config")
+            }
         } catch {
             writeErrors.append("func: \(error.localizedDescription)")
         }

@@ -78,7 +78,7 @@ mchose-cli <command> [options]
   snapshot [path]            保存可恢复快照（JSON）
   restore [path]             恢复最近（或指定）快照
   switchprofile <n>          切换配置档（需要 --allow-write）
-  selfcheck                  读回原值、写回、再比对（需要 --allow-write）
+  selfcheck                  走 App 相同的 apply 写入+回读校验路径，再比对（需要 --allow-write）
 ```
 
 示例：
