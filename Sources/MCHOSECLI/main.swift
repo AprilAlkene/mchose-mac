@@ -91,6 +91,7 @@ func usage() -> String {
       list                     enumerate MCHOSE configuration interfaces
       open                     open the configuration interface
       monitor                  print raw input reports for 10 seconds
+      watch [seconds]          print hotplug add/remove events (default 5s)
       info <reportId-hex>      send getInfo and print the response
       probe                    read info, triggers, keymap, light and base
       readraw <cmd> <off> <len>  read raw bytes with an arbitrary command
@@ -377,6 +378,19 @@ func run() throws {
             length: readLength
         )
         print("read \(bytes.count) bytes: \(Hex.string(bytes))")
+
+    case "watch":
+        let seconds = options.arguments.first.flatMap(TimeInterval.init) ?? 5
+        let monitor = HIDDeviceMonitor()
+        let startedAt = Date()
+        monitor.onDevicesChanged = { added in
+            let elapsed = String(format: "%.2f", Date().timeIntervalSince(startedAt))
+            print("[watch] \(added ? "added" : "removed") at +\(elapsed)s")
+        }
+        monitor.start()
+        print("watching configuration interfaces for \(Int(seconds))s (unplug/replug the keyboard to test)")
+        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+        monitor.stop()
 
     default:
         print(usage())

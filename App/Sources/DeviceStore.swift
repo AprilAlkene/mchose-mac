@@ -38,6 +38,11 @@ final class DeviceStore: ObservableObject {
 
     private let manifest: DeviceManifest?
     private let enumerator = HIDEnumerator()
+    private let monitor = HIDDeviceMonitor()
+    private var wakeObserver: NSObjectProtocol?
+    /// Debounces hotplug events; only refreshes when the matched device set
+    /// actually changed, so the launch-time enumeration callback is ignored.
+    private var hotplugGeneration = 0
 
     var canWrite: Bool {
         writePolicy != .readOnly
@@ -61,9 +66,34 @@ final class DeviceStore: ObservableObject {
             self?.switchProfile(index)
         }
         switcher.start()
+        monitor.onDevicesChanged = { [weak self] _ in
+            Task { @MainActor in self?.handleHotplug() }
+        }
+        monitor.start()
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
         logger.info(
             "manifest loaded: \(self.manifest?.displayName ?? "none", privacy: .public) policy=\(String(describing: self.writePolicy), privacy: .public)"
         )
+    }
+
+    private func handleHotplug() {
+        hotplugGeneration += 1
+        let generation = hotplugGeneration
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard let self, self.hotplugGeneration == generation else { return }
+            guard let scanned = self.scanDevices() else { return }
+            if Set(scanned.map(\.id)) == Set(self.devices.map(\.id)) {
+                return
+            }
+            self.refresh(scanned: scanned)
+        }
     }
 
     private static func writePolicyFromCommandLine() -> DeviceWritePolicy {
@@ -78,29 +108,55 @@ final class DeviceStore: ObservableObject {
     }
 
     func refresh() {
+        refresh(scanned: nil)
+    }
+
+    private func refresh(scanned precomputed: [ConnectedDevice]?) {
         error = nil
-        guard let manifest else {
+        guard manifest != nil else {
             status = "设备清单加载失败"
             return
         }
 
+        let previousID = selected?.id
+        let newDevices = precomputed ?? scanDevices() ?? []
+        devices = newDevices
+        logger.info("scan complete: \(newDevices.count) device(s)")
+
+        if let previousID, let match = newDevices.first(where: { $0.id == previousID }) {
+            selected = match
+            applyWritePolicy()
+            status = "已发现 \(devices.count) 个设备"
+            connectSelected()
+            return
+        }
+
+        // The previously selected device is gone (or nothing was selected yet):
+        // drop stale state and fall back to the first matched device.
+        selected?.connection.close()
+        selected = newDevices.first
+        info = nil
+        triggers = []
+        keymap = []
+        light = nil
+        base = nil
+        applyWritePolicy()
+
+        guard !newDevices.isEmpty else {
+            status = previousID == nil ? "未连接" : "设备已断开"
+            return
+        }
+        status = "已发现 \(devices.count) 个设备"
+        connectSelected()
+    }
+
+    private func scanDevices() -> [ConnectedDevice]? {
+        guard let manifest else { return nil }
         let refs = enumerator.listDevices().filter {
             DeviceMatcher.matches(info: $0.info, manifest: manifest)
                 && $0.info.interface.isConfigurationInterface
         }
-
-        devices = refs.map { ConnectedDevice(ref: $0, manifest: manifest) }
-        applyWritePolicy()
-        if selected == nil {
-            selected = devices.first
-        }
-        status = devices.isEmpty ? "未连接" : "已发现 \(devices.count) 个设备"
-        logger.info("scan complete: \(self.devices.count) device(s)")
-
-        if let first = devices.first, info == nil {
-            selected = first
-            connectSelected()
-        }
+        return refs.map { ConnectedDevice(ref: $0, manifest: manifest) }
     }
 
     private func applyWritePolicy() {
