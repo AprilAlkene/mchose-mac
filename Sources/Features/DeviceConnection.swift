@@ -428,6 +428,69 @@ public final class DeviceConnection {
 
     /// Captures the writable state of the currently active profile so that it
     /// can be restored later with `restore(_:)`.
+    // MARK: - Macros (shared 8192-byte area, command 0x0C / 0x0D)
+
+    /// Reads the macro area prefix needed to decode every slot.
+    public func readMacroBytes() throws -> [UInt8] {
+        let session = try requireSession()
+        var bytes: [UInt8] = []
+        while bytes.count < MacroCodec.areaSize {
+            let length = min(56, MacroCodec.areaSize - bytes.count)
+            let chunk = try session.read(
+                command: 0x0C,
+                offset: bytes.count,
+                length: length
+            )
+            bytes.append(contentsOf: chunk)
+            if chunk.count < length { break }
+            if bytes.count >= 112 {
+                let required = MacroCodec.requiredByteCount(bytes)
+                if bytes.count >= required { break }
+            }
+        }
+        return bytes
+    }
+
+    public func readMacroSlots() throws -> [MacroSlot] {
+        MacroCodec.parse(try readMacroBytes())
+    }
+
+    public func writeMacroBytes(_ bytes: [UInt8]) throws {
+        try ensureWriteAllowed()
+        guard bytes.count <= MacroCodec.areaSize else {
+            throw DeviceWriteError.verificationFailed(feature: "macro area size")
+        }
+        let session = try requireSession()
+        try session.write(
+            command: 0x0D,
+            offset: 0,
+            data: bytes,
+            chunkSize: CZCodec.maxDataLength
+        )
+    }
+
+    /// Writes the macro area, verifies the written prefix and restores the
+    /// previous area when the device does not echo the new bytes.
+    public func applyMacroBytes(_ bytes: [UInt8]) throws {
+        try ensureWriteAllowed()
+        guard writePolicy == .allow else { return }
+
+        let previous = try readMacroBytes()
+        try writeMacroBytes(bytes)
+        do {
+            let readback = try readMacroBytes()
+            guard Array(readback.prefix(bytes.count)) == bytes else {
+                try? writeMacroBytes(previous)
+                throw DeviceWriteError.verificationFailed(feature: "macros")
+            }
+        } catch let error as DeviceWriteError {
+            throw error
+        } catch {
+            try? writeMacroBytes(previous)
+            throw error
+        }
+    }
+
     public func captureSnapshot() throws -> DeviceSnapshot {
         let info = try? readInfo()
         let base = try readBaseBytes()
@@ -447,6 +510,7 @@ public final class DeviceConnection {
             keymap: layers[0].keys,
             keymapLayers: layers,
             keyColors: try readKeyColors(profile: profile),
+            macroBytes: try readMacroBytes(),
             funcConfig: try readFuncConfig(profile: profile),
             base: base
         )
@@ -492,6 +556,13 @@ public final class DeviceConnection {
                 throw DeviceWriteError.verificationFailed(
                     feature: "snapshot per-key colors"
                 )
+            }
+        }
+
+        if let macroBytes = snapshot.macroBytes {
+            try writeMacroBytes(macroBytes)
+            guard Array(try readMacroBytes().prefix(macroBytes.count)) == macroBytes else {
+                throw DeviceWriteError.verificationFailed(feature: "snapshot macros")
             }
         }
 

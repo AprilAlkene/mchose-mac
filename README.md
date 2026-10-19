@@ -18,7 +18,8 @@ MCHOSE（迈从）Ace 68 Turbo 16K 键盘的 **macOS 原生配置工具**（个�
 | 热插拔 / 睡眠唤醒自动重连 | ✅ 已实现（监听配置接口增删 + 唤醒刷新） |
 | 逐键灯效（128 键 RGB 读写；effect 65 时显示） | ✅ 实机验证（写入后回读一致，测试后已还原） |
 | 配置导入 / 导出（JSON） | ✅ 已实现 |
-| 宏 / SOCD / GIF / 音乐律动 | ❌ 未实现（协议已逆向，见已知限制） |
+| 宏（16 个共享槽位读取/写入/清空） | ✅ 实机验证（写入回读一致后已还原；最小编辑器） |
+| SOCD / GIF / 音乐律动 | ❌ 未实现（SOCD 协议已逆向，见已知限制） |
 | 固件 OTA / boot 模式 / 多型号 | ❌ 不做（见设计文档非目标） |
 
 目标设备：**MCHOSE Ace 68 Turbo 16K**（VID `0x3837` / PID `0x3026`，boot PID `0x3027`）。其他型号仅保留清单结构，未经实机验证。
@@ -77,6 +78,9 @@ mchose-cli <command> [options]
   info <reportId-hex>        发送 getInfo 并打印响应
   probe                      读取信息 / 磁轴 / 键位（第 0 层）/ 灯效 / 配置档
   layers                     读取并对比全部 4 层键位
+  macro                      读取并打印 16 个共享宏槽
+  macro-clear [slot]         清空一个（或全部）宏槽并回读校验（需要 --allow-write）
+  macro-set <slot> <a> ...   写入简单宏，如 A:down A:up（需要 --allow-write）
   keylight                   读取当前配置档的 128 键 RGB
   keylight-set <i> <hex>     设置单键颜色并回读校验（需要 --allow-write）
   readraw <cmd> <off> <len>  按任意命令读取原始字节
@@ -92,6 +96,7 @@ mchose-cli <command> [options]
 swift run mchose-cli probe                 # 纯只读
 swift run mchose-cli snapshot              # 写前快照
 swift run mchose-cli selfcheck --allow-write
+swift run mchose-cli macro                 # 查看宏槽（只读）
 swift run mchose-cli keylight              # 查看逐键 RGB（只读）
 swift run mchose-cli restore --allow-write # 恢复最近快照并逐段回读校验
 ```
@@ -99,23 +104,25 @@ swift run mchose-cli restore --allow-write # 恢复最近快照并逐段回读�
 ## 安全模型
 
 - **默认只读**：CLI 不带 `--allow-write` 时不发送任何写命令；App 可用 `--read-only` 锁定为只读（`open -a MCHOSEMac --args --read-only`），`--dry-run` 只编码不发送。
-- **写前快照**：CLI `snapshot`、App 每次应用设置前都会保存当前配置档的磁轴/全部 4 层键位/逐键 RGB/func config/base 到 `~/Library/Application Support/MCHOSE Mac/Snapshots/`。旧版本快照（只有第 0 层）仍可恢复。
+- **写前快照**：CLI `snapshot`、App 每次应用设置前都会保存当前配置档的磁轴/全部 4 层键位/逐键 RGB/宏区/func config/base 到 `~/Library/Application Support/MCHOSE Mac/Snapshots/`。旧版本快照（只有第 0 层）仍可恢复。
 - **回读校验 + 回滚**：每次写入后立即回读比对，不一致时自动写回旧值并报错（`DeviceConnection.apply*`）。
-- **快照恢复**：`restore` / App 的“恢复上次快照”会逐段写入并校验。快照记录来源配置档，恢复时写回同一档；新快照包含全部 4 层键位与逐键 RGB。
+- **快照恢复**：`restore` / App 的“恢复上次快照”会逐段写入并校验。快照记录来源配置档，恢复时写回同一档；新快照包含全部 4 层键位、逐键 RGB 与宏区前缀。
 - 设计细节见 `docs/superpowers/specs/2026-10-18-mchose-mac-design.md` 第 10 节。
 
 ## 协议要点
 
-- 所有读取都带逻辑地址：键位 `512 * (4 * profile + layer)`（有效区 384 字节）、磁轴 `1024 * profile`、func config/灯效 `64 * profile`、逐键灯效 `0x0A`/`0x0B` 共 `512 * profile` 起始、每键 3 字节、base `0`。分页读取时每页 offset 递增，响应会回显该 offset。
+- 所有读取都带逻辑地址：键位 `512 * (4 * profile + layer)`（有效区 384 字节）、磁轴 `1024 * profile`、func config/灯效 `64 * profile`、逐键灯效 `0x0A`/`0x0B` 共 `512 * profile` 起始、每键 3 字节、base `0`。
+- 宏区是全部配置档共享的一块 8192 字节区域：读 `0x0C`、写 `0x0D`，header 64 字节（16×uint16 offset + `81 7E` + 16 个类型字节），动作 4 字节/步（延迟毫秒、bit7 结束、bit6 按下、低 6 位类型）。空槽指向 offset 64 的空动作标记；逐段写入并回读校验。分页读取时每页 offset 递增，响应会回显该 offset。
 - 写入分块与官方 SDK 一致：键位 54 字节/块、磁轴与 func config 56 字节/块，最后一块数据不足时按 SDK 的方式回退 offset 重叠发送。
 - 以上地址公式与灯效字段（亮度 0–100、速度 0–4）均已对照官方 Web 驱动 bundle 与实机只读读取验证，详见 `docs/captures/ace68-feature-protocol.md`。
 
 ## 已知限制
 
 - 仅支持 Ace 68 Turbo 16K；其他型号未实机验证。
-- 快照覆盖当前配置档的 4 层键位、磁轴、灯效、逐键 RGB 与 base。
+- 快照覆盖当前配置档的 4 层键位、磁轴、灯效、逐键 RGB、宏区前缀与 base。
 - 逐键灯效的 key index 是固件矩阵顺序（0–127），App 网格按 index 排列，尚未映射到物理键位坐标；颜色只在主灯效设为 65（逐键静态）时显示。
-- 宏与 SOCD 协议已逆向（宏命令 `0x0C`/`0x0D`、SOCD 存储在键位扩展字节中），但尚未实现读写与 UI。
+- 宏编辑器是最小实现：可读、清空、按文本写入单个槽；尚未把键位映射到宏类型（即改键里还选不到“宏”），也还不支持编辑每步延迟/名称。
+- SOCD 协议已逆向（新 key config 的 type 36 记录，`0x202` 读 / `0x308` 写，走 report 77），但现有传输层只发 report 0，尚未实现。
 - 设备发现只枚举 MCHOSE 厂商的配置接口（`usagePage 0x01/0x00` 或 `0xFF00/0x01`），因此 `list` 看不到键盘/鼠标等其他 HID 接口；这是为了避免打开受保护键盘接口触发“输入监控”授权请求。
 - App 的设备 I/O 在专用 run-loop 线程执行，主线程只更新 UI；CLI 仍是单线程同步。
 - 新构建的二进制首次运行时，系统代码签名/TCC 校验可能让首轮扫描多花 2–3 秒；之后的启动正常。

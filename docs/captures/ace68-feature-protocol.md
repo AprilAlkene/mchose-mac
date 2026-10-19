@@ -141,6 +141,7 @@ payload[6..7]  = magic bytes AA BB
 |---|---|
 | Keymap default (flash) / current | `0x07` / `0x08` |
 | Per-key lighting | `0x0A` / `0x0B` (3 bytes/key, stride 512), effect 65 shows the block; writes verified on hardware via `keylight-set` readback |
+| Macros | `0x0C` / `0x0D`, shared 8192 B, 64 B header (16×uint16 offsets + `81 7E` + 16 types), 4 B/action; read/write verified on hardware via `macro` / `macro-set` / `macro-clear` readback |
 | Macros | `0x0C` / `0x0D` |
 | DKS / MT / TGL | `0xA2`–`0xA7` |
 | Calibration | `0xA8` / `0xA9` / `0xB1` |

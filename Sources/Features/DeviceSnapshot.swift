@@ -31,6 +31,9 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
     /// Per-key RGB colors of `profileIndex`. `nil` for snapshots written
     /// before per-key lighting was captured.
     public let keyColors: [KeyColor]?
+    /// Shared macro area prefix (header + action streams). `nil` for
+    /// snapshots written before macros were captured.
+    public let macroBytes: [UInt8]?
     public let funcConfig: [UInt8]
     public let base: [UInt8]
 
@@ -43,6 +46,7 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         keymap: [KeyInfo],
         keymapLayers: [KeymapLayer]? = nil,
         keyColors: [KeyColor]? = nil,
+        macroBytes: [UInt8]? = nil,
         funcConfig: [UInt8],
         base: [UInt8]
     ) {
@@ -54,6 +58,7 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         self.keymap = keymap
         self.keymapLayers = keymapLayers
         self.keyColors = keyColors
+        self.macroBytes = macroBytes
         self.funcConfig = funcConfig
         self.base = base
     }
@@ -67,6 +72,7 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         case keymap
         case keymapLayers
         case keyColors
+        case macroBytes
         case funcConfig
         case base
     }
@@ -97,6 +103,10 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         keyColors = try container.decodeIfPresent(
             [KeyColor].self,
             forKey: .keyColors
+        )
+        macroBytes = try container.decodeIfPresent(
+            [UInt8].self,
+            forKey: .macroBytes
         )
         funcConfig = try container.decode([UInt8].self, forKey: .funcConfig)
         base = try container.decode([UInt8].self, forKey: .base)

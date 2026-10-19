@@ -64,6 +64,15 @@ public enum KeyNameMap {
         return "Type \(type) / 0x\(String(code2, radix: 16))"
     }
 
+    /// Reverse lookup used by the CLI/testing to build macro actions.
+    public static func hidUsage(forName name: String) -> UInt8? {
+        let target = name.lowercased()
+        for usage in UInt8(0)...UInt8(255) where hidName(usage).lowercased() == target {
+            return usage
+        }
+        return nil
+    }
+
     public static func hidName(_ usage: UInt8) -> String {
         switch usage {
         case 0x04...0x1D:

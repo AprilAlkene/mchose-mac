@@ -126,9 +126,9 @@ Ace68 Turbo 16K 的 base 实机只读值（`docs/captures/ace68-feature-protocol
 解析（`mod39318.pretty.js` 的 `eC` / `mod14905.pretty.js`）：
 
 - `e[0]=1`：activeIndex 在 order 中的下标
-- `e[1]=3`：profileLength
+- `e[1]=3`：profileLength（当前启用/可见的档数）
 - `e[2..5]=00 01 02 03`：order
-- → `supportMultiProfile=true`，`supportOrderProfile=true`，`maxProfileLength=4`
+- → `supportMultiProfile=true`，`supportOrderProfile=true`，`maxProfileLength=4`（物理上限 4；`profileLength=3` 只是可见数，宏/键位仍按 4 档布局）
 
 GLW Provider 初始化（`app/2233-a3005d7f2c1e6167.js`）：
 
@@ -157,20 +157,21 @@ l && a
 0x0020  0x81 0x7E               2 B    magic
 0x0022  uint8 type[16]          16 B   槽类型（UI 播放方式）
 0x0032  0x00 ...                14 B   保留（到 0x003F）
-0x0040  动作流 ...                     每个动作 4 B；空槽在 0x0040 放结束标记
+0x0040  04 00 80 00            4 B   固定的空动作标记（所有空槽共享）
+0x0044  非空槽动作流 ...              每个动作 4 B
 ```
 
-空槽 offset = `0x0040`，动作流 = `04 00 80 00`。
+空槽 offset = `0x0040`（指向 `04 00 80 00`）；**第一个非空槽的 offset 是 `0x0044`**，因为 0x40 的 4 B 空标记总是先写入。所有槽都空时，16 个 offset 全是 64，整个宏区只需 68 B。
 
 证据：`mod14905.pretty.js:630-760`：
 
 ```js
 o = Array(2*l.Lj).fill(0);                 // 16 × uint16 = 32 B
-s = [ ...$([]) ];                           // 空宏 = SerializeMacroActions([])
+s = [ ...$([]) ];                           // 空宏 = SerializeMacroActions([]) = 4 B
 c = { [hash([])]: qW(64) };                 // 空宏 offset = 64
 for (e=0; e<l.Lj; e++) {
   n = $(t[e].macroActions);
-  [i,r] = qW(64 + s.length);
+  [i,r] = qW(64 + s.length);                // 非空：首个 = 68
   o[2*e] = i; o[2*e+1] = r;
   s.push(...n);
 }
@@ -450,7 +451,8 @@ UI i18n 里能 grep 到 `563/565/567/569` 四个键，但 bundle 没有把数字
 
 - `totalLightAreaSize = 512` B/profile
 - `usedLightAreaSize = 3 * maxLightKeyCount`
-- 本设备 GLW 默认 `maxLightKeyCount = 128`（`mod2038.pretty.js:1692-1698`）→ 实际使用 **384 B**
+- 本设备 GLW 默认 `maxLightKeyCount = 128`（`mod2038.pretty.js:1692-1698`）→ SDK 按 **384 B** 读写
+- Ace68 实际 68 键只占 index `0..67`（204 B）；`68..127` 是 SDK 的零填充/保留，不要当真实按键
 - 每键 3 B；总 512 B 中的后 128 B 是保留/其他 scopes，静态主键区只用 384 B
 - 逐键区**只有 RGB 三字节**，没有每键亮度/开关字段；亮度、总开关、速度在 4.4 的 8 B 主灯效配置里（profile 级，不是 key 级）
 
@@ -458,7 +460,7 @@ UI i18n 里能 grep 到 `563/565/567/569` 四个键，但 bundle 没有把数字
 
 - 颜色数组下标 = 键的**线性 key index**（与 `0x07/0x08` 的 keyIndex 同一索引空间），不是 `(row,col)`。
 - 偏移：`512*profile + 3*index`
-- 官方 UI 从 `initDefaultKeys()` 的 key index 生成 `lightColors`；布局里的 `Light0..4` 是侧灯节点，侧灯索引由 `toLightColorRage` 的 side/side2 range 决定，和主键不是同一段。主键 0..127；侧灯具体索引用 `getKeyCustomLight` 的 scopes 读出来确认。
+- 官方 UI 从 `initDefaultKeys()` 的 key index 生成 `lightColors`；布局里的 `Light0..4` 是侧灯节点，侧灯索引由 `toLightColorRage` 的 side/side2 range 决定，和主键不是同一段。主键 0..67（SDK 保留到 127）；侧灯具体索引用 `getKeyCustomLight` 的 scopes 读出来确认。
 - “index 与 0x08 keyIndex 完全一致”是推断，不是 JS 里直接断言；若实机写单键后 `0x0A` 读到的位置不对，按 `initDefaultKeys()` 的实际 index 调整。`UNVERIFIED - 需实机只读验证`。
 
 ### 4.2 颜色字节序
@@ -707,10 +709,10 @@ mchose-cli readraw 0C 56 56
 
 判读：
 
-- 前 32 B 应是 16 个 uint16 小端，第一个通常 `40 00`（空槽）；
+- 前 32 B 应是 16 个 uint16 小端；slot0 空时是 `40 00`，非空时是 `44 00`（0x44=68）；
 - `[32]=81 [33]=7E`；
 - `[34..49]` 是 16 个 type；
-- 从 `[64]` 开始每 4 B 一个动作；空槽是 `04 00 80 00`。
+- `[64]` 是固定的 `04 00 80 00` 空标记；非空槽从 `[68]` 开始每 4 B 一个动作。
 
 ### 7.2 逐键灯
 

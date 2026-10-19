@@ -69,6 +69,9 @@ struct ContentView: View {
                 PerKeyLightView(store: store)
                     .tabItem { Label("逐键灯效", systemImage: "square.grid.3x3.fill") }
 
+                MacroView(store: store)
+                    .tabItem { Label("宏", systemImage: "list.bullet.rectangle") }
+
                 ProfilesView(store: store)
                     .tabItem { Label("配置档", systemImage: "square.stack.3d.up") }
 

@@ -25,6 +25,7 @@ private struct LoadedFeatures {
     var base: BaseInfo?
     var keymap: [KeyInfo] = []
     var keyColors: [KeyColor] = []
+    var macroSlots: [MacroSlot] = []
     var triggers: [TriggerConfig] = []
     var light: LightConfig?
     var failures: [String] = []
@@ -41,6 +42,8 @@ final class DeviceStore: ObservableObject {
     @Published private(set) var keymapLayers: [Int: [KeyInfo]] = [:]
     /// Per-key RGB colors of the active profile (128 entries).
     @Published private(set) var keyColors: [KeyColor] = []
+    /// The 16 shared macro slots (same for every profile).
+    @Published private(set) var macroSlots: [MacroSlot] = []
     @Published private(set) var light: LightConfig?
     @Published private(set) var base: BaseInfo?
     @Published private(set) var status: String = "未连接"
@@ -212,6 +215,7 @@ final class DeviceStore: ObservableObject {
             keymap = []
             keymapLayers = [:]
             keyColors = []
+            macroSlots = []
             light = nil
             base = nil
         }
@@ -241,6 +245,7 @@ final class DeviceStore: ObservableObject {
         keymap = []
         keymapLayers = [:]
         keyColors = []
+        macroSlots = []
         light = nil
         base = nil
     }
@@ -299,6 +304,7 @@ final class DeviceStore: ObservableObject {
                 self.keymap = []
                 self.keymapLayers = [:]
                 self.keyColors = []
+                self.macroSlots = []
                 self.light = nil
                 self.base = nil
                 self.status = "未连接"
@@ -384,6 +390,39 @@ final class DeviceStore: ObservableObject {
             operation: { try $0.applyKeyColors(colors, profile: profile) },
             readback: { try $0.readKeyColors(profile: profile) },
             update: { [weak self] in self?.keyColors = $0 }
+        )
+    }
+
+    func clearMacroSlot(_ index: Int) {
+        var slots = macroSlots
+        guard index >= 0, index < slots.count else { return }
+        slots[index].actions = []
+        applyMacroSlots(slots, label: "清空宏")
+    }
+
+    func clearAllMacroSlots() {
+        let slots = macroSlots.map { MacroSlot(index: $0.index, type: $0.type, actions: []) }
+        applyMacroSlots(slots, label: "清空宏")
+    }
+
+    func setMacroSlot(_ index: Int, actions: [MacroAction]) {
+        var slots = macroSlots
+        guard index >= 0, index < slots.count else { return }
+        var withEnd = actions
+        if !withEnd.isEmpty {
+            withEnd[withEnd.count - 1].isEnd = true
+        }
+        slots[index].actions = withEnd
+        applyMacroSlots(slots, label: "写入宏")
+    }
+
+    private func applyMacroSlots(_ slots: [MacroSlot], label: String) {
+        let bytes = MacroCodec.serialize(slots)
+        applyFeature(
+            label,
+            operation: { try $0.applyMacroBytes(bytes) },
+            readback: { try $0.readMacroSlots() },
+            update: { [weak self] in self?.macroSlots = $0 }
         )
     }
 
@@ -622,6 +661,11 @@ final class DeviceStore: ObservableObject {
         } catch {
             failures.append("逐键灯效: \(error.localizedDescription)")
         }
+        do {
+            loaded.macroSlots = try connection.readMacroSlots()
+        } catch {
+            failures.append("宏: \(error.localizedDescription)")
+        }
 
         loaded.failures = failures
         logger.info(
@@ -639,12 +683,13 @@ final class DeviceStore: ObservableObject {
         triggers = loaded.triggers
         light = loaded.light
         keyColors = loaded.keyColors
+        macroSlots = loaded.macroSlots
 
         if !loaded.failures.isEmpty {
             error = loaded.failures.joined(separator: "；")
         }
         logger.info(
-            "features loaded profile=\(loaded.profile) keymap=\(loaded.keymap.count) triggers=\(loaded.triggers.count) light=\(loaded.light != nil) colors=\(loaded.keyColors.count) base=\(loaded.base != nil)"
+            "features loaded profile=\(loaded.profile) keymap=\(loaded.keymap.count) triggers=\(loaded.triggers.count) light=\(loaded.light != nil) colors=\(loaded.keyColors.count) macros=\(loaded.macroSlots.count) base=\(loaded.base != nil)"
         )
         for failure in loaded.failures {
             logger.error("feature load failure: \(failure, privacy: .public)")

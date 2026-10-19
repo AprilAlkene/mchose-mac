@@ -95,6 +95,9 @@ func usage() -> String {
       info <reportId-hex>      send getInfo and print the response
       probe                    read info, triggers, keymap, light and base
       layers                   read and diff all four keymap layers
+      macro                    read and print the 16 shared macro slots
+      macro-clear [slot]       clear one macro slot (or all) and verify (needs --allow-write)
+      macro-set <slot> <a> ... assign a simple macro, e.g. A:down A:up [--allow-write]
       keylight                 read the per-key RGB block of the active profile
       keylight-set <index> <hex>  set one key color and verify (needs --allow-write)
       readraw <cmd> <off> <len>  read raw bytes with an arbitrary command
@@ -266,6 +269,85 @@ func run() throws {
             }
         }
 
+    case "macro":
+        let connection = try openConnection()
+        defer { connection.close() }
+        _ = try connection.readInfo()
+        Thread.sleep(forTimeInterval: 0.1)
+        let slots = try connection.readMacroSlots()
+        let bytes = try connection.readMacroBytes()
+        print("macro area: \(bytes.count) bytes read of \(MacroCodec.areaSize), 16 slots")
+        for slot in slots {
+            let preview = slot.actions.prefix(6).map(\.description).joined(separator: ", ")
+            print(
+                "  slot \(slot.index): type=\(slot.type) actions=\(slot.actions.count)" +
+                (preview.isEmpty ? "" : " [\(preview)]")
+            )
+        }
+
+    case "macro-clear":
+        let slot = options.arguments.first.flatMap(Int.init)
+        let connection = try openConnection()
+        defer { connection.close() }
+        _ = try connection.readInfo()
+        Thread.sleep(forTimeInterval: 0.1)
+        var slots = try connection.readMacroSlots()
+        if let slot {
+            guard slot >= 0, slot < MacroCodec.slotCount else {
+                throw CLIError.usage("slot out of range 0..<16")
+            }
+            slots[slot].actions = []
+        } else {
+            slots = slots.map { MacroSlot(index: $0.index, type: $0.type, actions: []) }
+        }
+        try connection.applyMacroBytes(MacroCodec.serialize(slots))
+        let readback = try connection.readMacroSlots()
+        let target = slot.map { [$0] } ?? Array(0..<MacroCodec.slotCount)
+        let leftover = target.filter { !readback[$0].actions.isEmpty }
+        print("cleared \(target.count) macro slot(s); remaining non-empty: \(leftover)")
+        if options.writePolicy == .dryRun {
+            print("dry run: no write command was sent")
+        }
+
+    case "macro-set":
+        guard options.arguments.count >= 2, let slot = Int(options.arguments[0]) else {
+            throw CLIError.usage("usage: mchose-cli macro-set <slot> <name:down|name:up> ... [--allow-write]")
+        }
+        guard slot >= 0, slot < MacroCodec.slotCount else {
+            throw CLIError.usage("slot out of range 0..<16")
+        }
+        var actions: [MacroAction] = []
+        for token in options.arguments.dropFirst() {
+            let parts = token.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2,
+                  let usage = KeyNameMap.hidUsage(forName: String(parts[0])),
+                  parts[1] == "down" || parts[1] == "up" else {
+                throw CLIError.usage("bad action token '\(token)'; expected e.g. A:down")
+            }
+            actions.append(
+                MacroAction(isDown: parts[1] == "down", code: usage)
+            )
+        }
+        guard !actions.isEmpty else {
+            throw CLIError.usage("macro needs at least one action")
+        }
+        actions[actions.count - 1].isEnd = true
+        let connection = try openConnection()
+        defer { connection.close() }
+        _ = try connection.readInfo()
+        Thread.sleep(forTimeInterval: 0.1)
+        var slots = try connection.readMacroSlots()
+        slots[slot].actions = actions
+        try connection.applyMacroBytes(MacroCodec.serialize(slots))
+        let readback = try connection.readMacroSlots()
+        print(
+            "slot \(slot) written: \(readback[slot].actions.count) actions " +
+            "[\(readback[slot].actions.map(\.description).joined(separator: ", "))]"
+        )
+        if options.writePolicy == .dryRun {
+            print("dry run: no write command was sent")
+        }
+
     case "keylight":
         let connection = try openConnection()
         defer { connection.close() }
@@ -322,6 +404,7 @@ func run() throws {
             "triggers=\(snapshot.triggers.count) " +
             "keymap layers=\(snapshot.keymapLayers?.count ?? 1) " +
             "key colors=\(snapshot.keyColors?.count ?? 0) " +
+            "macro bytes=\(snapshot.macroBytes?.count ?? 0) " +
             "keys=\(snapshot.keymap.count) func=\(snapshot.funcConfig.count) base=\(snapshot.base.count))"
         )
         if options.writePolicy == .readOnly {
