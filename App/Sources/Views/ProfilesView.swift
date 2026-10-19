@@ -22,6 +22,7 @@ struct ProfilesView: View {
                         .tint(index == base.profileIndex ? .accentColor : .gray)
                     }
                 }
+                .disabled(store.isBusy || !store.canWrite)
             } else {
                 Text("连接设备后加载配置档")
                     .foregroundStyle(.secondary)
@@ -30,6 +31,7 @@ struct ProfilesView: View {
             Divider()
 
             Toggle("随前台应用自动切换", isOn: $switcher.isEnabled)
+                .disabled(!store.canWrite)
 
             LabeledContent("当前前台应用") {
                 Text(switcher.frontmostName ?? "-")

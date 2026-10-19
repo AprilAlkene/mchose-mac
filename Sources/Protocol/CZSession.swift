@@ -19,6 +19,10 @@ public final class CZSession {
     private let handle: HIDDeviceHandle
     private let codec: CZCodec
 
+    /// When true, write commands are encoded (so callers can validate their
+    /// payloads) but never sent to the device.
+    public var isDryRun = false
+
     public init(handle: HIDDeviceHandle, codec: CZCodec = CZCodec()) {
         self.handle = handle
         self.codec = codec
@@ -65,12 +69,12 @@ public final class CZSession {
         for page in 0..<pageCount {
             let pageStart = page * CZCodec.maxDataLength
             let size = min(CZCodec.maxDataLength, length - pageStart)
-            // Commands 8/0xA0 stream chunks and require offset 0; command 5
-            // (func config) is addressed and needs the page offset.
-            let requestOffset = command == 0x05 ? offset + pageStart : 0
+            // Mirrors the vendor SDK's `_simpleGetCommand`: every page is
+            // addressed at `offset + pageStart`, and the response echoes that
+            // logical offset (see CZResponseAssembler).
             let request = codec.encodeGet(
                 command: command,
-                offset: requestOffset,
+                offset: offset + pageStart,
                 length: size
             )
             try handle.setOutputReport(
@@ -92,19 +96,10 @@ public final class CZSession {
             throw CZSessionError.timeout
         }
 
-        var result: [UInt8] = []
-        result.reserveCapacity(length)
-        for response in responses.prefix(pageCount) {
-            result.append(contentsOf: response.payload)
-            if result.count >= length { break }
-        }
-
-        if result.count < length {
-            result.append(
-                contentsOf: Array(repeating: 0, count: length - result.count)
-            )
-        }
-        return Array(result.prefix(length))
+        return CZResponseAssembler.assemble(
+            Array(responses.prefix(pageCount)),
+            expectedLength: length
+        )
     }
 
     public func write(
@@ -141,6 +136,10 @@ public final class CZSession {
                 )
             )
             start += effectiveChunkSize
+        }
+
+        if isDryRun {
+            return
         }
 
         var responseCount = 0

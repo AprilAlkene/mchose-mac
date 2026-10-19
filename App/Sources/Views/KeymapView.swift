@@ -61,7 +61,7 @@ struct KeymapView: View {
                 }
 
                 Button("应用改键") { apply() }
-                    .disabled(store.isBusy || selectedIndex >= store.keymap.count)
+                    .disabled(store.isBusy || !store.canWrite || selectedIndex >= store.keymap.count)
             }
         }
         .padding()

@@ -77,7 +77,7 @@ struct MagneticView: View {
                     Button("应用当前键") { applyCurrent() }
                     Button("应用到全部键") { applyAll() }
                 }
-                .disabled(store.isBusy)
+                .disabled(store.isBusy || !store.canWrite)
             }
         }
         .padding()

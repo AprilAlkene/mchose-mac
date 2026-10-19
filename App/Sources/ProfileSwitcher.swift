@@ -9,6 +9,9 @@ final class ProfileSwitcher: ObservableObject {
     @Published var isEnabled: Bool {
         didSet {
             UserDefaults.standard.set(isEnabled, forKey: Self.enabledKey)
+            if !isEnabled {
+                cancelPendingSwitch()
+            }
         }
     }
 
@@ -26,8 +29,13 @@ final class ProfileSwitcher: ObservableObject {
     private static let enabledKey = "mchose.autoSwitchEnabled"
     private static let mappingsKey = "mchose.profileMappings"
 
+    /// Debounce window for app activation changes. Rapid Cmd+Tab sequences
+    /// collapse into a single profile switch, matching the design spec.
+    private static let switchDebounce: TimeInterval = 0.35
+
     private var observer: NSObjectProtocol?
     private var lastBundleID: String?
+    private var pendingWorkItem: DispatchWorkItem?
 
     private init() {
         isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
@@ -85,8 +93,21 @@ final class ProfileSwitcher: ObservableObject {
         }
 
         lastBundleID = bundleID
-        if let profile = mappings[bundleID] {
-            onSwitch?(profile)
+        guard let profile = mappings[bundleID] else { return }
+
+        pendingWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.onSwitch?(profile)
         }
+        pendingWorkItem = item
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.switchDebounce,
+            execute: item
+        )
+    }
+
+    private func cancelPendingSwitch() {
+        pendingWorkItem?.cancel()
+        pendingWorkItem = nil
     }
 }

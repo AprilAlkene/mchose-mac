@@ -1,4 +1,5 @@
 import SwiftUI
+import Features
 
 struct ContentView: View {
     @ObservedObject var store: DeviceStore
@@ -9,6 +10,14 @@ struct ContentView: View {
                 Text("MCHOSE Mac")
                     .font(.largeTitle.bold())
                 Spacer()
+                if store.writePolicy != .allow {
+                    Text(store.policyLabel)
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.orange.opacity(0.18))
+                        .clipShape(Capsule())
+                }
                 if store.isBusy {
                     ProgressView()
                         .controlSize(.small)
@@ -24,6 +33,13 @@ struct ContentView: View {
                     .disabled(store.selected == nil)
                 Button("断开") { store.disconnectSelected() }
                     .disabled(store.selected == nil)
+
+                Divider()
+                    .frame(height: 18)
+
+                Button("恢复上次快照") { store.restoreLastSnapshot() }
+                    .disabled(store.selected == nil || !store.canWrite)
+                    .help("把设备恢复到最近一次应用设置之前的状态")
             }
 
             Divider()

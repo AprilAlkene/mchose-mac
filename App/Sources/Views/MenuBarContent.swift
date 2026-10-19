@@ -14,11 +14,13 @@ struct MenuBarContent: View {
                     Button("配置档 \(index + 1)") {
                         store.switchProfile(index)
                     }
+                    .disabled(!store.canWrite)
                 }
             }
         }
 
         Toggle("随应用切换", isOn: $switcher.isEnabled)
+            .disabled(!store.canWrite)
 
         Divider()
 

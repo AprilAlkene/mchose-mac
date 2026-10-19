@@ -1,29 +1,36 @@
 import Foundation
 
 public struct LightConfig: Equatable, Sendable {
+    /// Light effect id, passed through to the firmware.
     public var effect: UInt8
+    /// Main light brightness in percent, 0...100 (official web UI range).
     public var brightness: UInt8
+    /// Main light speed, 0...4 (official web UI range, inverted on the wire).
     public var speed: UInt8
     public var direct: UInt8
+    /// 1 = random color (vendor UI "随机色"), 0 = use the custom RGB values.
     public var customColorDisabled: UInt8
     public var colorIndex: UInt8
     public var hexColor: String
     public var sideEffect: UInt8
+    /// Side light brightness in percent, 0...100.
     public var sideBrightness: UInt8
+    /// Side light speed, 0...4 (inverted on the wire).
     public var sideSpeed: UInt8
+    /// 1 = random color, 0 = use `sideHexColor`.
     public var sideCustomColorDisabled: UInt8
     public var sideHexColor: String
 
     public init(
         effect: UInt8 = 11,
-        brightness: UInt8 = 4,
+        brightness: UInt8 = 100,
         speed: UInt8 = 2,
         direct: UInt8 = 0,
         customColorDisabled: UInt8 = 1,
         colorIndex: UInt8 = 0,
         hexColor: String = "#FF0000",
         sideEffect: UInt8 = 0,
-        sideBrightness: UInt8 = 4,
+        sideBrightness: UInt8 = 100,
         sideSpeed: UInt8 = 3,
         sideCustomColorDisabled: UInt8 = 1,
         sideHexColor: String = "#FF0000"
@@ -73,7 +80,7 @@ public enum FuncConfigCodec {
         }
 
         result[8] = light.effect
-        result[9] = light.brightness
+        result[9] = min(100, light.brightness)
         result[10] = UInt8(4 - min(4, Int(light.speed)))
         result[11] = light.direct
         result[12] = light.customColorDisabled
@@ -85,7 +92,7 @@ public enum FuncConfigCodec {
         result[16] = main.2
 
         result[24] = light.sideEffect
-        result[25] = light.sideBrightness
+        result[25] = min(100, light.sideBrightness)
         result[26] = UInt8(4 - min(4, Int(light.sideSpeed)))
         result[27] = light.sideCustomColorDisabled
 

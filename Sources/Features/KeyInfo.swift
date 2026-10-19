@@ -1,6 +1,6 @@
 import Foundation
 
-public struct KeyInfo: Equatable, Sendable, Identifiable {
+public struct KeyInfo: Codable, Equatable, Sendable, Identifiable {
     public var id: Int { index }
     public var type: UInt8
     public var code1: UInt8

@@ -1,4 +1,4 @@
-public struct TriggerConfig: Equatable, Sendable {
+public struct TriggerConfig: Codable, Equatable, Sendable {
     public var switchType: Int
     public var keyMode: Int
     public var priority: Int
