@@ -19,6 +19,16 @@ struct ConnectedDevice: Identifiable {
     }
 }
 
+/// Device state read on the HID worker thread, applied to the UI on main.
+private struct LoadedFeatures {
+    var profile: Int = 0
+    var base: BaseInfo?
+    var keymap: [KeyInfo] = []
+    var triggers: [TriggerConfig] = []
+    var light: LightConfig?
+    var failures: [String] = []
+}
+
 @MainActor
 final class DeviceStore: ObservableObject {
     @Published private(set) var devices: [ConnectedDevice] = []
@@ -40,8 +50,11 @@ final class DeviceStore: ObservableObject {
     private let enumerator = HIDEnumerator()
     private let monitor = HIDDeviceMonitor()
     private var wakeObserver: NSObjectProtocol?
-    /// Debounces hotplug events; only refreshes when the matched device set
-    /// actually changed, so the launch-time enumeration callback is ignored.
+    /// Serializes all device I/O on a dedicated run-loop thread. IOKit
+    /// delivers input reports on the run loop where the device was scheduled,
+    /// so every connection operation has to stay on this one thread.
+    private let ioWorker = HIDRunLoopWorker()
+    /// Debounces hotplug events and drops the launch-time enumeration.
     private var hotplugGeneration = 0
 
     var canWrite: Bool {
@@ -75,25 +88,11 @@ final class DeviceStore: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in self?.refresh(force: true) }
         }
         logger.info(
             "manifest loaded: \(self.manifest?.displayName ?? "none", privacy: .public) policy=\(String(describing: self.writePolicy), privacy: .public)"
         )
-    }
-
-    private func handleHotplug() {
-        hotplugGeneration += 1
-        let generation = hotplugGeneration
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 400_000_000)
-            guard let self, self.hotplugGeneration == generation else { return }
-            guard let scanned = self.scanDevices() else { return }
-            if Set(scanned.map(\.id)) == Set(self.devices.map(\.id)) {
-                return
-            }
-            self.refresh(scanned: scanned)
-        }
     }
 
     private static func writePolicyFromCommandLine() -> DeviceWritePolicy {
@@ -107,56 +106,100 @@ final class DeviceStore: ObservableObject {
         return .allow
     }
 
-    func refresh() {
-        refresh(scanned: nil)
+    // MARK: - Device discovery
+
+    private func handleHotplug() {
+        hotplugGeneration += 1
+        waitForHotplugStability(generation: hotplugGeneration, attempt: 0)
     }
 
-    private func refresh(scanned precomputed: [ConnectedDevice]?) {
-        error = nil
-        guard manifest != nil else {
+    /// A background operation can still be running when the device changes;
+    /// retry until it settles, but give up quickly instead of polling forever.
+    private func waitForHotplugStability(generation: Int, attempt: Int) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard let self, self.hotplugGeneration == generation else { return }
+            if self.isBusy {
+                if attempt < 8 {
+                    self.waitForHotplugStability(generation: generation, attempt: attempt + 1)
+                }
+                return
+            }
+            self.refresh(force: false)
+        }
+    }
+
+    /// Re-enumerates devices and reconnects only when the matched set changed.
+    func refresh() {
+        refresh(force: false)
+    }
+
+    private func refresh(force: Bool) {
+        guard !isBusy else { return }
+        guard let manifest else {
             status = "设备清单加载失败"
             return
         }
-
         let previousID = selected?.id
-        let newDevices = precomputed ?? scanDevices() ?? []
-        devices = newDevices
-        logger.info("scan complete: \(newDevices.count) device(s)")
+        let enumerator = self.enumerator
+        isBusy = true
+        ioWorker.perform { [weak self] in
+            let scanned = Self.scanDevices(enumerator: enumerator, manifest: manifest)
+            Task { @MainActor [weak self] in
+                self?.finishScan(scanned, previousID: previousID, force: force)
+            }
+        }
+    }
 
-        if let previousID, let match = newDevices.first(where: { $0.id == previousID }) {
-            selected = match
-            applyWritePolicy()
-            status = "已发现 \(devices.count) 个设备"
-            connectSelected()
+    private nonisolated static func scanDevices(
+        enumerator: HIDEnumerator,
+        manifest: DeviceManifest
+    ) -> [ConnectedDevice] {
+        enumerator.listDevices()
+            .filter {
+                DeviceMatcher.matches(info: $0.info, manifest: manifest)
+                    && $0.info.interface.isConfigurationInterface
+            }
+            .map { ConnectedDevice(ref: $0, manifest: manifest) }
+    }
+
+    private func finishScan(_ scanned: [ConnectedDevice], previousID: String?, force: Bool) {
+        if !force, selected != nil, Set(scanned.map(\.id)) == Set(devices.map(\.id)) {
+            isBusy = false
             return
         }
+        let oldConnection = selected?.connection
+        ioWorker.perform { [weak self] in
+            oldConnection?.close()
+            Task { @MainActor [weak self] in
+                self?.applyScan(scanned, previousID: previousID)
+            }
+        }
+    }
 
-        // The previously selected device is gone (or nothing was selected yet):
-        // drop stale state and fall back to the first matched device.
-        selected?.connection.close()
-        selected = newDevices.first
-        info = nil
-        triggers = []
-        keymap = []
-        light = nil
-        base = nil
+    private func applyScan(_ scanned: [ConnectedDevice], previousID: String?) {
+        devices = scanned
+        logger.info("scan complete: \(scanned.count) device(s)")
+
+        if let previousID, let match = scanned.first(where: { $0.id == previousID }) {
+            selected = match
+        } else {
+            selected = scanned.first
+            info = nil
+            triggers = []
+            keymap = []
+            light = nil
+            base = nil
+        }
         applyWritePolicy()
+        isBusy = false
 
-        guard !newDevices.isEmpty else {
+        guard !scanned.isEmpty else {
             status = previousID == nil ? "未连接" : "设备已断开"
             return
         }
-        status = "已发现 \(devices.count) 个设备"
+        status = "已发现 \(scanned.count) 个设备"
         connectSelected()
-    }
-
-    private func scanDevices() -> [ConnectedDevice]? {
-        guard let manifest else { return nil }
-        let refs = enumerator.listDevices().filter {
-            DeviceMatcher.matches(info: $0.info, manifest: manifest)
-                && $0.info.interface.isConfigurationInterface
-        }
-        return refs.map { ConnectedDevice(ref: $0, manifest: manifest) }
     }
 
     private func applyWritePolicy() {
@@ -176,67 +219,137 @@ final class DeviceStore: ObservableObject {
         base = nil
     }
 
+    // MARK: - Connecting
+
     func connectSelected() {
-        guard let selected else { return }
-        selected.connection.writePolicy = writePolicy
-        do {
-            try selected.connection.connect()
-            info = try selected.connection.readInfo()
-            loadFeatures()
-            status = "已连接"
-            error = nil
-            if let info {
-                logger.info(
-                    "connected \(info.product, privacy: .public) firmware \(info.firmwareVersion ?? "unknown", privacy: .public) build \(info.buildDate, privacy: .public)"
-                )
+        guard !isBusy, let selected else { return }
+        let connection = selected.connection
+        connection.writePolicy = writePolicy
+        isBusy = true
+        ioWorker.perform { [weak self] in
+            var info: DeviceInfo?
+            var features: LoadedFeatures?
+            var failure: Error?
+            do {
+                try connection.connect()
+                info = try connection.readInfo()
+                features = Self.readFeatures(connection, profile: nil, includeBase: true)
+            } catch {
+                failure = error
             }
-        } catch {
-            status = "连接失败"
-            self.error = error.localizedDescription
-            info = nil
-            logger.error("connect failed: \(error.localizedDescription, privacy: .public)")
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isBusy = false
+                if let failure {
+                    self.status = "连接失败"
+                    self.error = failure.localizedDescription
+                    self.info = nil
+                    logger.error("connect failed: \(failure.localizedDescription, privacy: .public)")
+                    return
+                }
+                self.info = info
+                self.error = nil
+                if let features {
+                    self.applyFeatures(features)
+                }
+                self.status = "已连接"
+                if let info {
+                    logger.info(
+                        "connected \(info.product, privacy: .public) firmware \(info.firmwareVersion ?? "unknown", privacy: .public) build \(info.buildDate, privacy: .public)"
+                    )
+                }
+            }
         }
     }
 
     func disconnectSelected() {
-        selected?.connection.close()
-        info = nil
-        triggers = []
-        keymap = []
-        light = nil
-        base = nil
-        status = "未连接"
+        guard let connection = selected?.connection else { return }
+        ioWorker.perform { [weak self] in
+            connection.close()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.info = nil
+                self.triggers = []
+                self.keymap = []
+                self.light = nil
+                self.base = nil
+                self.status = "未连接"
+            }
+        }
     }
 
     // MARK: - Applying changes
 
     func applyTriggers(_ updated: [TriggerConfig]) {
-        perform {
-            let connection = try self.requireConnection()
-            let profile = self.base?.profileIndex ?? 0
-            try connection.applyTriggers(updated, profile: profile)
-            self.triggers = try connection.readTriggers(profile: profile)
-            self.status = self.applyStatus("磁轴")
-        }
+        let profile = base?.profileIndex ?? 0
+        applyFeature(
+            "磁轴",
+            operation: { try $0.applyTriggers(updated, profile: profile) },
+            readback: { try $0.readTriggers(profile: profile) },
+            update: { [weak self] in self?.triggers = $0 }
+        )
     }
 
     func applyKeymap(_ updated: [KeyInfo]) {
-        perform {
-            let connection = try self.requireConnection()
-            let profile = self.base?.profileIndex ?? 0
-            try connection.applyKeymap(updated, profile: profile)
-            self.keymap = try connection.readKeymap(profile: profile)
-            self.status = self.applyStatus("键位")
-        }
+        let profile = base?.profileIndex ?? 0
+        applyFeature(
+            "键位",
+            operation: { try $0.applyKeymap(updated, profile: profile) },
+            readback: { try $0.readKeymap(profile: profile) },
+            update: { [weak self] in self?.keymap = $0 }
+        )
     }
 
     func applyLight(_ updated: LightConfig) {
-        perform {
-            let connection = try self.requireConnection()
-            let profile = self.base?.profileIndex ?? 0
-            try connection.applyLightConfig(updated, profile: profile)
-            self.light = try connection.readLightConfig(profile: profile)
-            self.status = self.applyStatus("灯效")
+        let profile = base?.profileIndex ?? 0
+        applyFeature(
+            "灯效",
+            operation: { try $0.applyLightConfig(updated, profile: profile) },
+            readback: { try $0.readLightConfig(profile: profile) },
+            update: { [weak self] in self?.light = $0 }
+        )
+    }
+
+    /// Writes one feature, captures a snapshot first (when writes are enabled)
+    /// and reads the value back on the worker thread.
+    private func applyFeature<T>(
+        _ feature: String,
+        operation: @escaping (DeviceConnection) throws -> Void,
+        readback: @escaping (DeviceConnection) throws -> T,
+        update: @escaping (T) -> Void
+    ) {
+        guard !isBusy, let connection = selected?.connection else { return }
+        let policy = writePolicy
+        isBusy = true
+        ioWorker.perform { [weak self] in
+            var failure: Error?
+            var value: T?
+            var savedSnapshot: URL?
+            do {
+                if policy == .allow {
+                    savedSnapshot = try SnapshotStore.save(try connection.captureSnapshot())
+                }
+                try operation(connection)
+                value = try readback(connection)
+            } catch {
+                failure = error
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let savedSnapshot {
+                    self.lastSnapshotURL = savedSnapshot
+                }
+                self.isBusy = false
+                if let failure {
+                    self.status = "应用失败"
+                    self.error = failure.localizedDescription
+                    logger.error("apply failed: \(failure.localizedDescription, privacy: .public)")
+                } else if let value {
+                    update(value)
+                    self.error = nil
+                    self.status = self.applyStatus(feature)
+                }
+            }
         }
     }
 
@@ -249,46 +362,91 @@ final class DeviceStore: ObservableObject {
             status = "已在配置档 \(index + 1)"
             return
         }
-        perform(snapshot: false) {
-            let connection = try self.requireConnection()
-            try connection.switchProfile(index)
-            self.base = try connection.readBase()
-            self.loadFeatures(profile: index)
-            self.status = self.writePolicy == .dryRun
-                ? "配置档切换已编码（dry-run，未写入）"
-                : "已切换到配置档 \(index + 1)"
+        guard !isBusy, let connection = selected?.connection else { return }
+        let policy = writePolicy
+        isBusy = true
+        ioWorker.perform { [weak self] in
+            var failure: Error?
+            var baseInfo: BaseInfo?
+            var features: LoadedFeatures?
+            do {
+                try connection.switchProfile(index)
+                baseInfo = try connection.readBase()
+                features = Self.readFeatures(connection, profile: index, includeBase: false)
+            } catch {
+                failure = error
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isBusy = false
+                if let failure {
+                    self.status = "应用失败"
+                    self.error = failure.localizedDescription
+                    logger.error("switch profile failed: \(failure.localizedDescription, privacy: .public)")
+                    return
+                }
+                self.base = baseInfo
+                self.error = nil
+                if let features {
+                    self.applyFeatures(features)
+                }
+                self.status = policy == .dryRun
+                    ? "配置档切换已编码（dry-run，未写入）"
+                    : "已切换到配置档 \(index + 1)"
+            }
         }
     }
 
     func restoreLastSnapshot() {
-        guard selected != nil else { return }
+        guard let connection = selected?.connection else { return }
         guard canWrite else {
             error = "只读模式，未恢复快照"
             return
         }
+        guard !isBusy else { return }
+        let policy = writePolicy
+        let lastURL = lastSnapshotURL
         isBusy = true
-        defer { isBusy = false }
-        do {
-            let url = try resolveSnapshotURL()
-            let snapshot = try SnapshotStore.load(from: url)
-            try selected?.connection.restore(snapshot)
-            info = try selected?.connection.readInfo()
-            loadFeatures()
-            lastSnapshotURL = url
-            error = nil
-            status = writePolicy == .dryRun
-                ? "dry-run：快照已校验，未写入"
-                : "已恢复快照 \(url.lastPathComponent)"
-        } catch {
-            status = "恢复失败"
-            self.error = error.localizedDescription
-            logger.error("restore failed: \(error.localizedDescription, privacy: .public)")
+        ioWorker.perform { [weak self] in
+            var failure: Error?
+            var restoredURL: URL?
+            var info: DeviceInfo?
+            var features: LoadedFeatures?
+            do {
+                let url = try Self.resolveSnapshotURL(last: lastURL)
+                let snapshot = try SnapshotStore.load(from: url)
+                try connection.restore(snapshot)
+                info = try connection.readInfo()
+                features = Self.readFeatures(connection, profile: nil, includeBase: true)
+                restoredURL = url
+            } catch {
+                failure = error
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isBusy = false
+                if let failure {
+                    self.status = "恢复失败"
+                    self.error = failure.localizedDescription
+                    logger.error("restore failed: \(failure.localizedDescription, privacy: .public)")
+                    return
+                }
+                self.info = info
+                self.error = nil
+                if let features {
+                    self.applyFeatures(features)
+                }
+                self.lastSnapshotURL = restoredURL
+                self.status = policy == .dryRun
+                    ? "dry-run：快照已校验，未写入"
+                    : "已恢复快照 \(restoredURL?.lastPathComponent ?? "")"
+            }
         }
     }
 
-    private func resolveSnapshotURL() throws -> URL {
-        if let lastSnapshotURL {
-            return lastSnapshotURL
+    private nonisolated static func resolveSnapshotURL(last: URL?) throws -> URL {
+        if let last {
+            return last
         }
         if let latest = try SnapshotStore.latest() {
             return latest
@@ -307,78 +465,67 @@ final class DeviceStore: ObservableObject {
         }
     }
 
-    private func requireConnection() throws -> DeviceConnection {
-        guard let selected else {
-            throw DeviceConnectionError.notConnected
-        }
-        return selected.connection
-    }
-
     // MARK: - Reading
 
-    /// Loads base first, then reads the keymap/trigger/lighting sections of the
-    /// currently active profile. An explicit profile can be passed right after
-    /// a profile switch.
-    private func loadFeatures(profile explicitProfile: Int? = nil) {
-        guard let selected else { return }
+    /// Reads base (optional) and the keymap/trigger/lighting sections of one
+    /// profile. Runs on the worker thread; no UI state is touched here.
+    private nonisolated static func readFeatures(
+        _ connection: DeviceConnection,
+        profile explicitProfile: Int?,
+        includeBase: Bool
+    ) -> LoadedFeatures {
+        var loaded = LoadedFeatures()
         var failures: [String] = []
 
-        if explicitProfile == nil || base == nil {
+        if includeBase {
             do {
-                base = try selected.connection.readBase()
+                loaded.base = try connection.readBase()
             } catch {
                 failures.append("配置档: \(error.localizedDescription)")
             }
         }
-        let profile = explicitProfile ?? base?.profileIndex ?? 0
+        let profile = explicitProfile ?? loaded.base?.profileIndex ?? 0
+        loaded.profile = profile
 
         do {
-            keymap = try selected.connection.readKeymap(profile: profile)
+            loaded.keymap = try connection.readKeymap(profile: profile)
         } catch {
             failures.append("键位: \(error.localizedDescription)")
         }
         do {
-            triggers = try selected.connection.readTriggers(profile: profile)
+            loaded.triggers = try connection.readTriggers(profile: profile)
         } catch {
             failures.append("磁轴: \(error.localizedDescription)")
         }
         do {
-            light = try selected.connection.readLightConfig(profile: profile)
+            loaded.light = try connection.readLightConfig(profile: profile)
         } catch {
             failures.append("灯效: \(error.localizedDescription)")
         }
 
-        if !failures.isEmpty {
-            error = failures.joined(separator: "；")
-        }
-
+        loaded.failures = failures
         logger.info(
-            "features loaded profile=\(profile) keymap=\(self.keymap.count) triggers=\(self.triggers.count) light=\(self.light != nil) base=\(self.base != nil)"
+            "features read on \(Thread.isMainThread ? "main" : "worker", privacy: .public) thread=\(Thread.current.name ?? "unnamed", privacy: .public)"
         )
-        for failure in failures {
-            logger.error("feature load failure: \(failure, privacy: .public)")
-        }
+        return loaded
     }
 
-    /// Runs a device operation on the main actor.
-    ///
-    /// When `snapshot` is true and writes are enabled, the current device state
-    /// is saved before the body runs. A failed snapshot aborts the operation
-    /// instead of writing without a safety net.
-    private func perform(snapshot: Bool = true, _ body: () throws -> Void) {
-        guard selected != nil else { return }
-        isBusy = true
-        defer { isBusy = false }
-        do {
-            if snapshot, writePolicy == .allow, let connection = selected?.connection {
-                lastSnapshotURL = try SnapshotStore.save(try connection.captureSnapshot())
-            }
-            try body()
-            error = nil
-        } catch {
-            status = "应用失败"
-            self.error = error.localizedDescription
-            logger.error("apply failed: \(error.localizedDescription, privacy: .public)")
+    private func applyFeatures(_ loaded: LoadedFeatures) {
+        if let base = loaded.base {
+            self.base = base
+        }
+        keymap = loaded.keymap
+        triggers = loaded.triggers
+        light = loaded.light
+
+        if !loaded.failures.isEmpty {
+            error = loaded.failures.joined(separator: "；")
+        }
+        logger.info(
+            "features loaded profile=\(loaded.profile) keymap=\(loaded.keymap.count) triggers=\(loaded.triggers.count) light=\(loaded.light != nil) base=\(loaded.base != nil)"
+        )
+        for failure in loaded.failures {
+            logger.error("feature load failure: \(failure, privacy: .public)")
         }
     }
 }
