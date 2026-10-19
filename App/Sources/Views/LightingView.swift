@@ -1,5 +1,5 @@
-import SwiftUI
 import Features
+import SwiftUI
 
 struct LightingView: View {
     @ObservedObject var store: DeviceStore
@@ -9,115 +9,159 @@ struct LightingView: View {
     @State private var sideColor: Color = .red
 
     var body: some View {
-        Form {
+        PageScroll {
             if let light = draft {
-                Stepper(
-                    "主灯效：\(light.effect)",
-                    value: Binding(
-                        get: { Int(light.effect) },
-                        set: { newValue in
-                            update { $0.effect = UInt8(clamping: newValue) }
+                Card("主灯") {
+                    SettingRow("模式") {
+                        Stepper(
+                            value: Binding(
+                                get: { Int(light.effect) },
+                                set: { newValue in
+                                    update { $0.effect = UInt8(clamping: newValue) }
+                                }
+                            ),
+                            in: 0...65
+                        ) {
+                            Text("灯效 ID \(light.effect)")
+                                .monospacedDigit()
                         }
-                    ),
-                    in: 0...65
-                )
-
-                Text("65 = 逐键静态灯效（用「逐键灯效」页设置的颜色会在这档显示）")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                LabeledContent("主亮度") {
-                    HStack {
-                        Slider(
-                            value: Binding(
-                                get: { Double(light.brightness) },
-                                set: { value in update { $0.brightness = UInt8(clamping: Int(value)) } }
-                            ),
-                            in: 0...100,
-                            step: 1
-                        )
-                        Text("\(light.brightness)%").monospacedDigit()
                     }
-                }
 
-                LabeledContent("主速度") {
-                    HStack {
-                        Slider(
-                            value: Binding(
-                                get: { Double(light.speed) },
-                                set: { value in update { $0.speed = UInt8(clamping: Int(value)) } }
-                            ),
-                            in: 0...4,
-                            step: 1
-                        )
-                        Text("\(light.speed) / 4").monospacedDigit()
-                    }
-                }
+                    Text("0–22 为动态灯效；65 为逐键静态，颜色在「逐键灯效」页设置。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
-                ColorPicker("主颜色", selection: $mainColor, supportsOpacity: false)
-                    .onChange(of: mainColor) { _ in updateMainColor() }
-
-                Toggle(
-                    "主灯随机色",
-                    isOn: Binding(
-                        get: { light.customColorDisabled == 1 },
-                        set: { isRandom in
-                            update { $0.customColorDisabled = isRandom ? 1 : 0 }
+                    SettingRow("亮度") {
+                        percentSlider(value: light.brightness) { newValue in
+                            update { $0.brightness = newValue }
                         }
-                    )
-                )
-
-                LabeledContent("侧灯亮度") {
-                    HStack {
-                        Slider(
-                            value: Binding(
-                                get: { Double(light.sideBrightness) },
-                                set: { value in update { $0.sideBrightness = UInt8(clamping: Int(value)) } }
-                            ),
-                            in: 0...100,
-                            step: 1
-                        )
-                        Text("\(light.sideBrightness)%").monospacedDigit()
                     }
-                }
-
-                LabeledContent("侧灯速度") {
-                    HStack {
-                        Slider(
-                            value: Binding(
-                                get: { Double(light.sideSpeed) },
-                                set: { value in update { $0.sideSpeed = UInt8(clamping: Int(value)) } }
-                            ),
-                            in: 0...4,
-                            step: 1
-                        )
-                        Text("\(light.sideSpeed) / 4").monospacedDigit()
-                    }
-                }
-
-                ColorPicker("侧灯颜色", selection: $sideColor, supportsOpacity: false)
-                    .onChange(of: sideColor) { _ in updateSideColor() }
-
-                Toggle(
-                    "侧灯随机色",
-                    isOn: Binding(
-                        get: { light.sideCustomColorDisabled == 1 },
-                        set: { isRandom in
-                            update { $0.sideCustomColorDisabled = isRandom ? 1 : 0 }
+                    SettingRow("速度") {
+                        speedSlider(value: light.speed) { newValue in
+                            update { $0.speed = newValue }
                         }
-                    )
-                )
+                    }
+                    SettingRow("颜色") {
+                        HStack(spacing: 10) {
+                            ColorPicker("主颜色", selection: $mainColor, supportsOpacity: false)
+                                .labelsHidden()
+                                .onChange(of: mainColor) { _ in updateMainColor() }
+                            Text(light.hexColor)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    SettingRow("随机色") {
+                        Toggle(
+                            "主灯随机色",
+                            isOn: Binding(
+                                get: { light.customColorDisabled == 1 },
+                                set: { isRandom in
+                                    update { $0.customColorDisabled = isRandom ? 1 : 0 }
+                                }
+                            )
+                        )
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                    }
+                }
 
-                Button("应用灯效") { apply() }
-                    .disabled(store.isBusy || !store.canWrite)
+                Card("侧灯") {
+                    SettingRow("亮度") {
+                        percentSlider(value: light.sideBrightness) { newValue in
+                            update { $0.sideBrightness = newValue }
+                        }
+                    }
+                    SettingRow("速度") {
+                        speedSlider(value: light.sideSpeed) { newValue in
+                            update { $0.sideSpeed = newValue }
+                        }
+                    }
+                    SettingRow("颜色") {
+                        HStack(spacing: 10) {
+                            ColorPicker("侧灯颜色", selection: $sideColor, supportsOpacity: false)
+                                .labelsHidden()
+                                .onChange(of: sideColor) { _ in updateSideColor() }
+                            Text(light.sideHexColor)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    SettingRow("随机色") {
+                        Toggle(
+                            "侧灯随机色",
+                            isOn: Binding(
+                                get: { light.sideCustomColorDisabled == 1 },
+                                set: { isRandom in
+                                    update { $0.sideCustomColorDisabled = isRandom ? 1 : 0 }
+                                }
+                            )
+                        )
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                    }
+                }
+
+                HStack {
+                    Spacer()
+                    Button("应用灯效") { apply() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(store.isBusy || !store.canWrite)
+                }
             } else {
-                Text("连接设备后加载灯效")
-                    .foregroundStyle(.secondary)
+                Card {
+                    EmptyState(
+                        icon: "lightbulb",
+                        title: "尚未加载灯效",
+                        message: store.selected == nil ? "连接设备后可用" : "正在读取设备…"
+                    )
+                }
             }
         }
-        .padding()
         .onAppear { sync() }
         .onChange(of: store.light) { _ in sync() }
+    }
+
+    private func percentSlider(
+        value: UInt8,
+        set: @escaping (UInt8) -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            Slider(
+                value: Binding(
+                    get: { Double(value) },
+                    set: { set(UInt8(clamping: Int($0))) }
+                ),
+                in: 0...100,
+                step: 1
+            )
+            Text("\(value)%")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+
+    private func speedSlider(
+        value: UInt8,
+        set: @escaping (UInt8) -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            Slider(
+                value: Binding(
+                    get: { Double(value) },
+                    set: { set(UInt8(clamping: Int($0))) }
+                ),
+                in: 0...4,
+                step: 1
+            )
+            Text("\(value) / 4")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .trailing)
+        }
     }
 
     private func sync() {

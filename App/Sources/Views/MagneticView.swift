@@ -1,5 +1,5 @@
-import SwiftUI
 import Features
+import SwiftUI
 
 struct MagneticView: View {
     @ObservedObject var store: DeviceStore
@@ -8,81 +8,85 @@ struct MagneticView: View {
     @State private var draft: TriggerConfig?
 
     var body: some View {
-        Form {
+        PageScroll {
             if store.keymap.isEmpty {
-                Text("连接设备后加载磁轴设置")
-                    .foregroundStyle(.secondary)
-            } else {
-                Picker("按键", selection: $selectedIndex) {
-                    ForEach(store.keymap) { key in
-                        Text("\(key.index)  \(key.name)").tag(key.index)
-                    }
+                Card {
+                    EmptyState(
+                        icon: "slider.horizontal.3",
+                        title: "尚未加载磁轴设置",
+                        message: store.selected == nil ? "连接设备后可用" : "正在读取设备…"
+                    )
                 }
-                .onChange(of: selectedIndex) { _ in syncDraft() }
+            } else {
+                Card("按键") {
+                    Picker("按键", selection: $selectedIndex) {
+                        ForEach(store.keymap) { key in
+                            Text("\(key.index)  \(key.name)").tag(key.index)
+                        }
+                    }
+                    .labelsHidden()
+                    .onChange(of: selectedIndex) { _ in syncDraft() }
+                }
 
                 if let trigger = draft {
-                    LabeledContent("触发点") {
-                        HStack {
-                            Slider(
-                                value: Binding(
-                                    get: { Double(trigger.keyActuation) / 100.0 },
-                                    set: { value in
-                                        update { $0.keyActuation = Int((value * 100).rounded()) }
-                                    }
-                                ),
-                                in: 0.1...4.0
-                            )
-                            Text(String(format: "%.2f mm", Double(trigger.keyActuation) / 100.0))
-                                .monospacedDigit()
-                                .frame(width: 72, alignment: .trailing)
+                    Card("触发行程") {
+                        SettingRow("触发点") {
+                            sliderRow(
+                                value: Double(trigger.keyActuation) / 100,
+                                range: 0.1...4.0,
+                                text: String(format: "%.2f mm", Double(trigger.keyActuation) / 100)
+                            ) { value in
+                                update { $0.keyActuation = Int((value * 100).rounded()) }
+                            }
+                        }
+                        SettingRow("按下 RT") {
+                            sliderRow(
+                                value: Double(trigger.rtPress) / 100,
+                                range: 0.05...5.0,
+                                text: String(format: "%.2f mm", Double(trigger.rtPress) / 100)
+                            ) { value in
+                                update { $0.rtPress = Int((value * 100).rounded()) }
+                            }
+                        }
+                        SettingRow("抬起 RT") {
+                            sliderRow(
+                                value: Double(trigger.rtRelease) / 100,
+                                range: 0.05...5.0,
+                                text: String(format: "%.2f mm", Double(trigger.rtRelease) / 100)
+                            ) { value in
+                                update { $0.rtRelease = Int((value * 100).rounded()) }
+                            }
                         }
                     }
 
-                    LabeledContent("按下 RT") {
-                        HStack {
-                            Slider(
-                                value: Binding(
-                                    get: { Double(trigger.rtPress) / 100.0 },
-                                    set: { value in
-                                        update { $0.rtPress = Int((value * 100).rounded()) }
-                                    }
-                                ),
-                                in: 0.05...3.0
-                            )
-                            Text(String(format: "%.2f mm", Double(trigger.rtPress) / 100.0))
-                                .monospacedDigit()
-                                .frame(width: 72, alignment: .trailing)
-                        }
+                    HStack(spacing: 10) {
+                        Button("应用到全部键") { applyAll() }
+                            .buttonStyle(.bordered)
+                        Button("应用当前键") { applyCurrent() }
+                            .buttonStyle(.borderedProminent)
+                        Spacer()
                     }
-
-                    LabeledContent("抬起 RT") {
-                        HStack {
-                            Slider(
-                                value: Binding(
-                                    get: { Double(trigger.rtRelease) / 100.0 },
-                                    set: { value in
-                                        update { $0.rtRelease = Int((value * 100).rounded()) }
-                                    }
-                                ),
-                                in: 0.05...3.0
-                            )
-                            Text(String(format: "%.2f mm", Double(trigger.rtRelease) / 100.0))
-                                .monospacedDigit()
-                                .frame(width: 72, alignment: .trailing)
-                        }
-                    }
+                    .disabled(store.isBusy || !store.canWrite)
                 }
-
-                HStack {
-                    Button("应用当前键") { applyCurrent() }
-                    Button("应用到全部键") { applyAll() }
-                }
-                .disabled(store.isBusy || !store.canWrite)
             }
         }
-        .padding()
         .onAppear { syncDraft() }
         .onChange(of: store.triggers) { _ in syncDraft() }
+    }
+
+    private func sliderRow(
+        value: Double,
+        range: ClosedRange<Double>,
+        text: String,
+        set: @escaping (Double) -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            Slider(value: Binding(get: { value }, set: set), in: range)
+            Text(text)
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 68, alignment: .trailing)
+        }
     }
 
     private func syncDraft() {

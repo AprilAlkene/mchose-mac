@@ -1,5 +1,5 @@
-import SwiftUI
 import Features
+import SwiftUI
 
 private struct CommonKey: Identifiable {
     let id: UInt8
@@ -42,52 +42,77 @@ struct KeymapView: View {
     }
 
     var body: some View {
-        Form {
-            Picker("图层", selection: $selectedLayer) {
-                ForEach(0..<DeviceMemoryMap.layers, id: \.self) { layer in
-                    Text(layerName(layer)).tag(layer)
+        PageScroll {
+            Card("键位层") {
+                SettingRow("图层") {
+                    Picker("图层", selection: $selectedLayer) {
+                        ForEach(0..<DeviceMemoryMap.layers, id: \.self) { layer in
+                            Text(layerName(layer)).tag(layer)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
                 }
-            }
-            .onChange(of: selectedLayer) { layer in
-                selectedIndex = 0
-                store.loadLayer(layer)
             }
 
             if keys.isEmpty {
-                Text(store.isBusy ? "读取图层…" : "连接设备后加载键位")
-                    .foregroundStyle(.secondary)
+                Card {
+                    EmptyState(
+                        icon: "keyboard",
+                        title: store.isBusy ? "读取图层…" : "尚未加载键位",
+                        message: store.selected == nil ? "连接设备后可用" : nil
+                    )
+                }
             } else {
-                Picker("按键", selection: $selectedIndex) {
-                    ForEach(keys) { key in
-                        Text("\(key.index)  \(key.name)").tag(key.index)
+                Card("按键") {
+                    Picker("按键", selection: $selectedIndex) {
+                        ForEach(keys) { key in
+                            Text("\(key.index)  \(key.name)").tag(key.index)
+                        }
+                    }
+                    .labelsHidden()
+
+                    SettingRow("当前映射") {
+                        Text(currentName)
+                            .font(.callout.weight(.medium))
                     }
                 }
 
-                if selectedIndex < keys.count {
-                    LabeledContent("当前映射") {
-                        Text(keys[selectedIndex].name)
+                Card("改为") {
+                    SettingRow("目标按键") {
+                        Picker("目标按键", selection: $targetUsage) {
+                            ForEach(commonKeys) { key in
+                                Text(key.name).tag(key.id)
+                            }
+                        }
+                        .labelsHidden()
                     }
-                }
 
-                Picker("映射为", selection: $targetUsage) {
-                    ForEach(commonKeys) { key in
-                        Text(key.name).tag(key.id)
+                    HStack(spacing: 10) {
+                        Spacer()
+                        Button("设为空") { clear() }
+                            .buttonStyle(.bordered)
+                            .help("把该层这个键改成“无映射”（type 0xFF）")
+                        Button("应用改键") { apply() }
+                            .buttonStyle(.borderedProminent)
                     }
+                    .disabled(store.isBusy || !store.canWrite || selectedIndex >= keys.count)
                 }
-
-                HStack {
-                    Button("应用改键") { apply() }
-                    Button("设为空") { clear() }
-                        .help("把该层这个键改成“无映射”（type 0xFF）")
-                }
-                .disabled(store.isBusy || !store.canWrite || selectedIndex >= keys.count)
             }
         }
-        .padding()
+        .onChange(of: selectedLayer) { layer in
+            selectedIndex = 0
+            store.loadLayer(layer)
+        }
         .onChange(of: store.keymap) { _ in
             // Re-read the selected layer after a reconnect or profile switch.
             store.loadLayer(selectedLayer)
         }
+    }
+
+    private var currentName: String {
+        guard selectedIndex < keys.count else { return "—" }
+        return keys[selectedIndex].name
     }
 
     private func layerName(_ layer: Int) -> String {

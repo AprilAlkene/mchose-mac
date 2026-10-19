@@ -6,66 +6,87 @@ struct ProfilesView: View {
 
     @State private var targetProfile = 0
 
+    private var profileBinding: Binding<Int> {
+        Binding(
+            get: { store.base?.profileIndex ?? 0 },
+            set: { store.switchProfile($0) }
+        )
+    }
+
     var body: some View {
-        Form {
-            if let base = store.base {
-                LabeledContent("当前配置档") {
-                    Text("\(base.profileIndex + 1) / \(base.profileCount)")
+        PageScroll {
+            Card("当前配置档") {
+                if let base = store.base {
+                    SettingRow("活动档") {
+                        Text("配置档 \(base.profileIndex + 1) / \(base.profileCount)")
+                            .font(.callout.weight(.medium))
+                    }
+                    Picker("配置档", selection: profileBinding) {
+                        ForEach(0..<base.profileCount, id: \.self) { index in
+                            Text("配置档 \(index + 1)").tag(index)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .disabled(store.isBusy || !store.canWrite)
+                } else {
+                    EmptyState(
+                        icon: "square.stack.3d.up",
+                        title: "尚未加载配置档",
+                        message: store.selected == nil ? "连接设备后可用" : "正在读取设备…"
+                    )
+                }
+            }
+
+            Card("随前台应用切换") {
+                Toggle("启用自动切换", isOn: $switcher.isEnabled)
+                    .disabled(!store.canWrite)
+
+                SettingRow("当前应用") {
+                    Text(switcher.frontmostName ?? "—")
+                        .foregroundStyle(.secondary)
                 }
 
-                HStack {
-                    ForEach(0..<base.profileCount, id: \.self) { index in
-                        Button("\(index + 1)") {
-                            store.switchProfile(index)
+                SettingRow("绑定到") {
+                    HStack(spacing: 10) {
+                        Picker("绑定到配置档", selection: $targetProfile) {
+                            ForEach(0..<(store.base?.profileCount ?? 4), id: \.self) { index in
+                                Text("配置档 \(index + 1)").tag(index)
+                            }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(index == base.profileIndex ? .accentColor : .gray)
+                        .labelsHidden()
+                        .frame(width: 140)
+
+                        Button("绑定当前应用") {
+                            switcher.bindCurrentApp(to: targetProfile)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(switcher.frontmostBundleID == nil)
                     }
                 }
-                .disabled(store.isBusy || !store.canWrite)
-            } else {
-                Text("连接设备后加载配置档")
-                    .foregroundStyle(.secondary)
             }
-
-            Divider()
-
-            Toggle("随前台应用自动切换", isOn: $switcher.isEnabled)
-                .disabled(!store.canWrite)
-
-            LabeledContent("当前前台应用") {
-                Text(switcher.frontmostName ?? "-")
-            }
-
-            Picker("绑定到配置档", selection: $targetProfile) {
-                ForEach(0..<(store.base?.profileCount ?? 4), id: \.self) { index in
-                    Text("配置档 \(index + 1)").tag(index)
-                }
-            }
-
-            Button("绑定当前应用") {
-                switcher.bindCurrentApp(to: targetProfile)
-            }
-            .disabled(switcher.frontmostBundleID == nil)
 
             if !switcher.mappings.isEmpty {
-                Text("已绑定应用")
-                    .font(.headline)
-
-                ForEach(Array(switcher.mappings.keys.sorted()), id: \.self) { bundleID in
-                    let profile = switcher.mappings[bundleID] ?? 0
-                    HStack {
-                        Text(bundleID)
-                            .font(.caption)
-                        Spacer()
-                        Text("配置档 \(profile + 1)")
-                        Button("删除") {
-                            switcher.remove(bundleID)
+                Card("已绑定应用") {
+                    VStack(spacing: 2) {
+                        ForEach(Array(switcher.mappings.keys.sorted()), id: \.self) { bundleID in
+                            HStack(spacing: 10) {
+                                Text(bundleID)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text("配置档 \((switcher.mappings[bundleID] ?? 0) + 1)")
+                                    .font(.callout)
+                                Button("删除") { switcher.remove(bundleID) }
+                                    .buttonStyle(.borderless)
+                                    .controlSize(.small)
+                            }
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 4)
                         }
                     }
                 }
             }
         }
-        .padding()
     }
 }
