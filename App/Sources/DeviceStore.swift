@@ -459,6 +459,45 @@ final class DeviceStore: ObservableObject {
     }
 
     func restoreLastSnapshot() {
+        restoreSnapshot(lastSnapshotURL)
+    }
+
+    /// Writes a configuration file (a snapshot JSON) back to the device.
+    func importConfiguration(from url: URL) {
+        guard canWrite else {
+            error = "只读模式，未导入配置"
+            return
+        }
+        restoreSnapshot(url)
+    }
+
+    /// Writes the current device configuration to a user-chosen file.
+    func exportConfiguration(to url: URL) {
+        guard !isBusy, let connection = selected?.connection else { return }
+        isBusy = true
+        ioWorker.perform { [weak self] in
+            var failure: Error?
+            do {
+                let snapshot = try connection.captureSnapshot()
+                try SnapshotStore.write(snapshot, to: url)
+            } catch {
+                failure = error
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isBusy = false
+                if let failure {
+                    self.status = "导出失败"
+                    self.error = failure.localizedDescription
+                    return
+                }
+                self.status = "已导出配置 \(url.lastPathComponent)"
+                self.error = nil
+            }
+        }
+    }
+
+    private func restoreSnapshot(_ url: URL?) {
         guard let connection = selected?.connection else { return }
         guard canWrite else {
             error = "只读模式，未恢复快照"
@@ -466,7 +505,6 @@ final class DeviceStore: ObservableObject {
         }
         guard !isBusy else { return }
         let policy = writePolicy
-        let lastURL = lastSnapshotURL
         isBusy = true
         ioWorker.perform { [weak self] in
             var failure: Error?
@@ -474,7 +512,7 @@ final class DeviceStore: ObservableObject {
             var info: DeviceInfo?
             var features: LoadedFeatures?
             do {
-                let url = try Self.resolveSnapshotURL(last: lastURL)
+                let url = try Self.resolveSnapshotURL(last: url)
                 let snapshot = try SnapshotStore.load(from: url)
                 try connection.restore(snapshot)
                 info = try connection.readInfo()

@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import Features
 
 struct ContentView: View {
@@ -40,6 +42,16 @@ struct ContentView: View {
                 Button("恢复上次快照") { store.restoreLastSnapshot() }
                     .disabled(store.selected == nil || !store.canWrite)
                     .help("把设备恢复到最近一次应用设置之前的状态")
+
+                Divider()
+                    .frame(height: 18)
+
+                Button("导出配置…") { exportConfiguration() }
+                    .disabled(store.selected == nil)
+                    .help("把当前配置档（磁轴、4 层键位、灯效）保存为 JSON")
+                Button("导入配置…") { importConfiguration() }
+                    .disabled(store.selected == nil || !store.canWrite)
+                    .help("从 JSON 文件写入配置并逐段回读校验")
             }
 
             Divider()
@@ -65,5 +77,24 @@ struct ContentView: View {
         .padding(20)
         .frame(minWidth: 760, minHeight: 620)
         .task { store.refresh() }
+    }
+
+    private func exportConfiguration() {
+        let panel = NSSavePanel()
+        panel.title = "导出 MCHOSE 配置"
+        panel.nameFieldStringValue = "mchose-config.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        store.exportConfiguration(to: url)
+    }
+
+    private func importConfiguration() {
+        let panel = NSOpenPanel()
+        panel.title = "导入 MCHOSE 配置"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        store.importConfiguration(from: url)
     }
 }
