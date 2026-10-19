@@ -28,6 +28,9 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
     /// before multi-layer capture existed; those only contain layer 0 in
     /// `keymap`.
     public let keymapLayers: [KeymapLayer]?
+    /// Per-key RGB colors of `profileIndex`. `nil` for snapshots written
+    /// before per-key lighting was captured.
+    public let keyColors: [KeyColor]?
     public let funcConfig: [UInt8]
     public let base: [UInt8]
 
@@ -39,6 +42,7 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         triggers: [TriggerConfig],
         keymap: [KeyInfo],
         keymapLayers: [KeymapLayer]? = nil,
+        keyColors: [KeyColor]? = nil,
         funcConfig: [UInt8],
         base: [UInt8]
     ) {
@@ -49,6 +53,7 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         self.triggers = triggers
         self.keymap = keymap
         self.keymapLayers = keymapLayers
+        self.keyColors = keyColors
         self.funcConfig = funcConfig
         self.base = base
     }
@@ -61,6 +66,7 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         case triggers
         case keymap
         case keymapLayers
+        case keyColors
         case funcConfig
         case base
     }
@@ -87,6 +93,10 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         keymapLayers = try container.decodeIfPresent(
             [KeymapLayer].self,
             forKey: .keymapLayers
+        )
+        keyColors = try container.decodeIfPresent(
+            [KeyColor].self,
+            forKey: .keyColors
         )
         funcConfig = try container.decode([UInt8].self, forKey: .funcConfig)
         base = try container.decode([UInt8].self, forKey: .base)

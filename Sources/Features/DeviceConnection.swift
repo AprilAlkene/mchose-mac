@@ -137,6 +137,19 @@ public final class DeviceConnection {
         FuncConfigCodec.light(from: try readFuncConfig(profile: profile))
     }
 
+    /// Reads the per-key RGB block of a profile (command `0x0A`).
+    public func readKeyColors(
+        profile: Int = 0
+    ) throws -> [KeyColor] {
+        let session = try requireSession()
+        let bytes = try session.read(
+            command: 0x0A,
+            offset: DeviceMemoryMap.lightOffset(profile: profile),
+            length: DeviceMemoryMap.usedLightAreaSize
+        )
+        return PerKeyLightCodec.unpack(bytes)
+    }
+
     public func readBaseBytes() throws -> [UInt8] {
         let session = try requireSession()
         return try session.read(
@@ -239,6 +252,21 @@ public final class DeviceConnection {
         try writeFuncConfig(
             FuncConfigCodec.patch(light, into: bytes),
             profile: profile
+        )
+    }
+
+    /// Writes the per-key RGB block of a profile (command `0x0B`).
+    public func writeKeyColors(
+        _ colors: [KeyColor],
+        profile: Int = 0
+    ) throws {
+        try ensureWriteAllowed()
+        let session = try requireSession()
+        try session.write(
+            command: 0x0B,
+            offset: DeviceMemoryMap.lightOffset(profile: profile),
+            data: PerKeyLightCodec.pack(colors),
+            chunkSize: 54
         )
     }
 
@@ -345,6 +373,35 @@ public final class DeviceConnection {
         }
     }
 
+    /// Writes the per-key RGB block, verifies it by reading it back and
+    /// restores the previous colors when the device does not echo the new
+    /// values.
+    public func applyKeyColors(
+        _ colors: [KeyColor],
+        profile: Int = 0
+    ) throws {
+        try ensureWriteAllowed()
+        guard writePolicy == .allow else {
+            _ = PerKeyLightCodec.pack(colors)
+            return
+        }
+
+        let previous = try readKeyColors(profile: profile)
+        try writeKeyColors(colors, profile: profile)
+        do {
+            let readback = try readKeyColors(profile: profile)
+            guard readback == colors else {
+                try? writeKeyColors(previous, profile: profile)
+                throw DeviceWriteError.verificationFailed(feature: "per-key colors")
+            }
+        } catch let error as DeviceWriteError {
+            throw error
+        } catch {
+            try? writeKeyColors(previous, profile: profile)
+            throw error
+        }
+    }
+
     public func switchProfile(_ index: Int) throws {
         try ensureWriteAllowed()
         if writePolicy == .dryRun {
@@ -389,6 +446,7 @@ public final class DeviceConnection {
             triggers: try readTriggers(profile: profile),
             keymap: layers[0].keys,
             keymapLayers: layers,
+            keyColors: try readKeyColors(profile: profile),
             funcConfig: try readFuncConfig(profile: profile),
             base: base
         )
@@ -425,6 +483,15 @@ public final class DeviceConnection {
             try writeKeymap(snapshot.keymap, profile: profile)
             guard try readKeymap(profile: profile) == snapshot.keymap else {
                 throw DeviceWriteError.verificationFailed(feature: "snapshot keymap")
+            }
+        }
+
+        if let keyColors = snapshot.keyColors {
+            try writeKeyColors(keyColors, profile: profile)
+            guard try readKeyColors(profile: profile) == keyColors else {
+                throw DeviceWriteError.verificationFailed(
+                    feature: "snapshot per-key colors"
+                )
             }
         }
 

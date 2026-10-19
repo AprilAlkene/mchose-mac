@@ -95,6 +95,8 @@ func usage() -> String {
       info <reportId-hex>      send getInfo and print the response
       probe                    read info, triggers, keymap, light and base
       layers                   read and diff all four keymap layers
+      keylight                 read the per-key RGB block of the active profile
+      keylight-set <index> <hex>  set one key color and verify (needs --allow-write)
       readraw <cmd> <off> <len>  read raw bytes with an arbitrary command
       snapshot [path]          capture a restorable snapshot (JSON)
       restore [path]           restore the latest snapshot (or a given file)
@@ -264,6 +266,51 @@ func run() throws {
             }
         }
 
+    case "keylight":
+        let connection = try openConnection()
+        defer { connection.close() }
+        _ = try connection.readInfo()
+        Thread.sleep(forTimeInterval: 0.1)
+        let profile = try connection.readBase()?.profileIndex ?? 0
+        let names = try connection.readKeymap(layer: 0, profile: profile)
+        let colors = try connection.readKeyColors(profile: profile)
+        print(
+            "active profile: \(profile + 1) per-key colors: \(colors.count) " +
+            "area=\(DeviceMemoryMap.usedLightAreaSize) bytes"
+        )
+        let nonBlack = colors.enumerated().filter { $0.element != .off }
+        print("non-black keys: \(nonBlack.count)")
+        for (index, color) in nonBlack.prefix(40) {
+            let name = index < names.count ? names[index].name : "?"
+            print("  key \(index) \(name): \(color.hex)")
+        }
+        if nonBlack.count > 40 {
+            print("  ... \(nonBlack.count - 40) more")
+        }
+        print("note: per-key colors are shown by the still/custom effect (65)")
+
+    case "keylight-set":
+        guard options.arguments.count >= 2,
+              let keyIndex = Int(options.arguments[0]),
+              let color = KeyColor(hex: options.arguments[1]) else {
+            throw CLIError.usage("usage: mchose-cli keylight-set <index> <RRGGBB> [--allow-write]")
+        }
+        let connection = try openConnection()
+        defer { connection.close() }
+        _ = try connection.readInfo()
+        Thread.sleep(forTimeInterval: 0.1)
+        let profile = try connection.readBase()?.profileIndex ?? 0
+        var colors = try connection.readKeyColors(profile: profile)
+        guard keyIndex >= 0, keyIndex < colors.count else {
+            throw CLIError.usage("key index out of range 0..<\(colors.count)")
+        }
+        colors[keyIndex] = color
+        try connection.applyKeyColors(colors, profile: profile)
+        print("set key \(keyIndex) to \(color.hex) on profile \(profile + 1) (readback verified)")
+        if options.writePolicy == .dryRun {
+            print("dry run: no write command was sent")
+        }
+
     case "snapshot":
         let connection = try openConnection()
         defer { connection.close() }
@@ -274,6 +321,7 @@ func run() throws {
             "(product=\(snapshot.product) profile=\(snapshot.profileIndex + 1) " +
             "triggers=\(snapshot.triggers.count) " +
             "keymap layers=\(snapshot.keymapLayers?.count ?? 1) " +
+            "key colors=\(snapshot.keyColors?.count ?? 0) " +
             "keys=\(snapshot.keymap.count) func=\(snapshot.funcConfig.count) base=\(snapshot.base.count))"
         )
         if options.writePolicy == .readOnly {

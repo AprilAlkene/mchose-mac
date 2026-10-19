@@ -24,6 +24,7 @@ private struct LoadedFeatures {
     var profile: Int = 0
     var base: BaseInfo?
     var keymap: [KeyInfo] = []
+    var keyColors: [KeyColor] = []
     var triggers: [TriggerConfig] = []
     var light: LightConfig?
     var failures: [String] = []
@@ -38,6 +39,8 @@ final class DeviceStore: ObservableObject {
     @Published private(set) var keymap: [KeyInfo] = []
     /// Keymap layers read on demand; layer 0 is filled at connect time.
     @Published private(set) var keymapLayers: [Int: [KeyInfo]] = [:]
+    /// Per-key RGB colors of the active profile (128 entries).
+    @Published private(set) var keyColors: [KeyColor] = []
     @Published private(set) var light: LightConfig?
     @Published private(set) var base: BaseInfo?
     @Published private(set) var status: String = "未连接"
@@ -208,6 +211,7 @@ final class DeviceStore: ObservableObject {
             triggers = []
             keymap = []
             keymapLayers = [:]
+            keyColors = []
             light = nil
             base = nil
         }
@@ -236,6 +240,7 @@ final class DeviceStore: ObservableObject {
         triggers = []
         keymap = []
         keymapLayers = [:]
+        keyColors = []
         light = nil
         base = nil
     }
@@ -293,6 +298,7 @@ final class DeviceStore: ObservableObject {
                 self.triggers = []
                 self.keymap = []
                 self.keymapLayers = [:]
+                self.keyColors = []
                 self.light = nil
                 self.base = nil
                 self.status = "未连接"
@@ -368,6 +374,16 @@ final class DeviceStore: ObservableObject {
             operation: { try $0.applyLightConfig(updated, profile: profile) },
             readback: { try $0.readLightConfig(profile: profile) },
             update: { [weak self] in self?.light = $0 }
+        )
+    }
+
+    func applyKeyColors(_ colors: [KeyColor]) {
+        let profile = base?.profileIndex ?? 0
+        applyFeature(
+            "逐键灯效",
+            operation: { try $0.applyKeyColors(colors, profile: profile) },
+            readback: { try $0.readKeyColors(profile: profile) },
+            update: { [weak self] in self?.keyColors = $0 }
         )
     }
 
@@ -601,6 +617,11 @@ final class DeviceStore: ObservableObject {
         } catch {
             failures.append("灯效: \(error.localizedDescription)")
         }
+        do {
+            loaded.keyColors = try connection.readKeyColors(profile: profile)
+        } catch {
+            failures.append("逐键灯效: \(error.localizedDescription)")
+        }
 
         loaded.failures = failures
         logger.info(
@@ -617,12 +638,13 @@ final class DeviceStore: ObservableObject {
         keymapLayers = [0: loaded.keymap]
         triggers = loaded.triggers
         light = loaded.light
+        keyColors = loaded.keyColors
 
         if !loaded.failures.isEmpty {
             error = loaded.failures.joined(separator: "；")
         }
         logger.info(
-            "features loaded profile=\(loaded.profile) keymap=\(loaded.keymap.count) triggers=\(loaded.triggers.count) light=\(loaded.light != nil) base=\(loaded.base != nil)"
+            "features loaded profile=\(loaded.profile) keymap=\(loaded.keymap.count) triggers=\(loaded.triggers.count) light=\(loaded.light != nil) colors=\(loaded.keyColors.count) base=\(loaded.base != nil)"
         )
         for failure in loaded.failures {
             logger.error("feature load failure: \(failure, privacy: .public)")

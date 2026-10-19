@@ -18,6 +18,12 @@ public enum DeviceMemoryMap {
     public static let triggerAreaSize = 1024
     public static let funcConfigSize = 64
     public static let baseSize = 56
+    /// Per-key RGB area reserved per profile (`totalLightAreaSize`).
+    public static let lightAreaSize = 512
+    /// Bytes actually used by the per-key RGB area (3 bytes/key).
+    public static let usedLightAreaSize = 384
+    /// Number of per-key RGB entries (`usedLightAreaSize / 3`).
+    public static let lightKeyCount = 128
 
     public static func keymapOffset(profile: Int, layer: Int) -> Int {
         totalKeyAreaSize * (layers * profile + layer)
@@ -29,5 +35,9 @@ public enum DeviceMemoryMap {
 
     public static func funcConfigOffset(profile: Int) -> Int {
         funcConfigSize * profile
+    }
+
+    public static func lightOffset(profile: Int) -> Int {
+        lightAreaSize * profile
     }
 }

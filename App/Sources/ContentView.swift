@@ -66,6 +66,9 @@ struct ContentView: View {
                 LightingView(store: store)
                     .tabItem { Label("灯效", systemImage: "lightbulb") }
 
+                PerKeyLightView(store: store)
+                    .tabItem { Label("逐键灯效", systemImage: "square.grid.3x3.fill") }
+
                 ProfilesView(store: store)
                     .tabItem { Label("配置档", systemImage: "square.stack.3d.up") }
 

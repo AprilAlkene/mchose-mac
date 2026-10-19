@@ -1,7 +1,9 @@
 import Foundation
 
 public struct LightConfig: Equatable, Sendable {
-    /// Light effect id, passed through to the firmware.
+    /// Light effect id, passed through to the firmware. Values 0...22 are the
+    /// named effects; 65 is the still effect that displays the per-key RGB
+    /// block edited in ``PerKeyLight``.
     public var effect: UInt8
     /// Main light brightness in percent, 0...100 (official web UI range).
     public var brightness: UInt8

@@ -140,7 +140,7 @@ payload[6..7]  = magic bytes AA BB
 | Purpose | Read / write |
 |---|---|
 | Keymap default (flash) / current | `0x07` / `0x08` |
-| Per-key lighting | `0x0A` / `0x0B` (3 bytes/key, stride 512) |
+| Per-key lighting | `0x0A` / `0x0B` (3 bytes/key, stride 512), effect 65 shows the block; writes verified on hardware via `keylight-set` readback |
 | Macros | `0x0C` / `0x0D` |
 | DKS / MT / TGL | `0xA2`–`0xA7` |
 | Calibration | `0xA8` / `0xA9` / `0xB1` |
@@ -161,7 +161,7 @@ Every write path added in this project follows the same rules:
    before writing, writes it, reads it back and compares. A mismatch triggers
    a best-effort write of the previous values before the error is reported.
 3. **Snapshot before apply.** The app stores a JSON snapshot of triggers,
-   keymap, func config and base in
+   all four keymap layers, func config and base in
    `~/Library/Application Support/MCHOSE Mac/Snapshots/` before every apply;
    `mchose-cli snapshot` / `restore` provide the same flow from the CLI.
 4. **No OTA / boot commands.** The write command table above is the complete
@@ -173,12 +173,30 @@ Every write path added in this project follows the same rules:
 
 ```text
 triggers match: true
-keymap match: true
+keymap layers match: true
 func match: true
 base match: true
 ```
 
 Profile switching was verified with `mchose-cli switchprofile 1` and `switchprofile 0`.
+
+### Multi-layer keymap verified on hardware (2026-10-19)
+
+`mchose-cli layers` reads all four layers of the active profile and diffs them
+against layer 0. On this device layers are genuinely populated (FN combos and
+media/mouse entries use key types other than `0x10`):
+
+```text
+layer 0: 128 keys
+layer 1: 128 keys, 87 differ from layer 0
+layer 2: 128 keys, 54 differ from layer 0
+layer 3: 128 keys, 90 differ from layer 0
+```
+
+`mchose-cli selfcheck --allow-write` writes every layer back and verifies the
+readback (`keymap layers match: true`), and `mchose-cli snapshot` stores all
+four layers (`keymapLayers`, snapshot JSON v2). Snapshots written by older
+builds (layer 0 only) still restore.
 
 ### Profile addressing verified on hardware (2026-10-19)
 

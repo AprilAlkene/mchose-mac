@@ -19,8 +19,12 @@ struct LightingView: View {
                             update { $0.effect = UInt8(clamping: newValue) }
                         }
                     ),
-                    in: 0...22
+                    in: 0...65
                 )
+
+                Text("65 = 逐键静态灯效（用「逐键灯效」页设置的颜色会在这档显示）")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
 
                 LabeledContent("主亮度") {
                     HStack {
