@@ -33,7 +33,7 @@ let package = Package(
         ),
         .target(name: "Protocol", dependencies: ["HIDTransport"]),
         .target(name: "Features", dependencies: ["HIDTransport", "Protocol"]),
-        .executableTarget(name: "MCHOSECLI", dependencies: ["HIDTransport", "Protocol"]),
+        .executableTarget(name: "MCHOSECLI", dependencies: ["HIDTransport", "Protocol", "Features"]),
         .testTarget(
             name: "HIDTransportTests",
             dependencies: ["HIDTransport"],

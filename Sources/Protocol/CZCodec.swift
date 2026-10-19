@@ -92,9 +92,9 @@ public struct CZCodec {
         let command = bytes[1]
         let payloadLength = Int(bytes[4])
         let payloadOffset = Int(bytes[5]) | (Int(bytes[6]) << 8)
-        let start = 8 + payloadOffset
+        let start = 8
 
-        guard start >= 8, payloadLength >= 0, start + payloadLength <= bytes.count else {
+        guard payloadLength >= 0, start + payloadLength <= bytes.count else {
             throw HIDError.invalidResponse
         }
 

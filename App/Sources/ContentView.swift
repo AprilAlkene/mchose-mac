@@ -5,15 +5,18 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("MCHOSE Mac")
-                .font(.largeTitle.bold())
+            HStack {
+                Text("MCHOSE Mac")
+                    .font(.largeTitle.bold())
+                Spacer()
+                if store.isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
 
             ConnectionStatusView(store: store)
             DeviceListView(store: store)
-            Divider()
-            DeviceInfoView(info: store.info)
-
-            Spacer()
 
             HStack {
                 Button("扫描设备") { store.refresh() }
@@ -22,9 +25,29 @@ struct ContentView: View {
                 Button("断开") { store.disconnectSelected() }
                     .disabled(store.selected == nil)
             }
+
+            Divider()
+
+            TabView {
+                MagneticView(store: store)
+                    .tabItem { Label("磁轴", systemImage: "slider.horizontal.3") }
+
+                KeymapView(store: store)
+                    .tabItem { Label("改键", systemImage: "keyboard") }
+
+                LightingView(store: store)
+                    .tabItem { Label("灯效", systemImage: "lightbulb") }
+
+                ProfilesView(store: store)
+                    .tabItem { Label("配置档", systemImage: "square.stack.3d.up") }
+
+                DeviceInfoView(info: store.info)
+                    .tabItem { Label("信息", systemImage: "info.circle") }
+            }
+            .frame(minHeight: 300)
         }
         .padding(20)
-        .frame(minWidth: 560, minHeight: 380)
+        .frame(minWidth: 760, minHeight: 620)
         .task { store.refresh() }
     }
 }
