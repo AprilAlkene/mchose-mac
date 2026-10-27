@@ -10,6 +10,7 @@ A native macOS configurator for the MCHOSE Ace 68 Turbo 16K keyboard, built with
 ![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange)
 ![SwiftUI](https://img.shields.io/badge/UI-SwiftUI-blue)
 ![Offline](https://img.shields.io/badge/network-offline-green)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 ## 截图
 
@@ -196,4 +197,8 @@ swift test
 
 本项目与 MCHOSE 官方无关，仅用于个人设备的本地互操作。写设备有风险（配置丢失/异常），请先 `snapshot`。不实现 OTA，避免刷砖；不重新分发厂商素材或固件。
 
-未附开源许可证；如需复用代码，请先联系作者。
+## 许可证
+
+[MIT](LICENSE) © 2026 AprilAlkene
+
+可以自由使用、修改、分发（含商业用途），保留版权与许可声明即可。MCHOSE 及相关商标归其权利人所有，本许可证仅授予代码版权，不授予商标使用权。
